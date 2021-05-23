@@ -326,8 +326,14 @@ template<class T, int max_size> struct Stack {
 	inline T* begin() {
 		return (T*)data.data();
 	}
+	inline const T* begin() const {
+		return (const T*)data.data();
+	}
 	inline T* end() {
 		return (T*)data.data() + right;
+	}
+	inline const T* end() const {
+		return (const T*)data.data() + right;
 	}
 	inline T* front() {
 		ASSERT(right > 0, "no data.");
@@ -469,6 +475,11 @@ struct Graph{
     array<array<T, 29>, 30> horizontal_edges;  // 横移動のコスト
     array<array<T, 30>, 29> vertical_edges;  // 縦移動のコスト
     
+	Graph() = default;
+	Graph(const T& fill_value) {
+		fill(&horizontal_edges[0][0], &horizontal_edges[0][0] + sizeof(horizontal_edges) + sizeof(vertical_edges), fill_value);
+	}
+
 	T ComputePathLength(Vec2<int> p, const string& path) const {
 		auto res = (T)0;
 		for (const auto& c : path) {
@@ -497,23 +508,189 @@ struct Graph{
 };
 
 struct State {
-	Graph<double> graph;            // 各辺の予測値
-	int M;                          // 道の途中で強さが変わるか
-	array<int, 30> xs_h, xs_v;      // どこで変わるか
-	array<array<int, 2>, 30> H, V;  // 道の強さ基準値
-	double score;                   // 負の対数尤度 (最小化)
+	Graph<double> graph;                       // 各辺の予測値
+	//double D;                                  // ばらつき [100, 2000]  // D = sqrt(sum_delta / (n-1)) とかなので、必要ない
+	double sum_delta;                          // すべての辺に対しての δ の 2 乗和
+	int M;                                     // 道の途中で強さが変わるか {1, 2}
+	array<int, 30> xs_h, xs_v;                 // どこで変わるか [1, 28]
+	array<array<double, 2>, 30> H, V;          // 道の強さ基準値
+	array<double, 30> sum_deltas_h, sum_deltas_v;  // 各道路の δ^2 の和
+	double score;                              // 負の対数尤度 (最小化)
+
+	// Undo に必要な情報(TODO)
+	int last_changed_r, last_changed_yx1, last_changed_yx2, last_xs_value;
+	double last_graph_value, last_HV_value_0, last_HV_value_1, last_sum_deltas_value, last_score;
+
+
+	State() : graph(5000.0), D(2000.0), M(2), xs_h(), xs_v(), H(), V(), sum_deltas_h(), sum_deltas_v(), score(1e300),
+		last_changed_r(), last_changed_yx1(), last_changed_yx2(), last_xs_value(), last_graph_value(), last_HV_value_0(), last_HV_value_1(), last_sum_deltas_value(), last_score()
+	{
+		// TODO
+
+		fill(xs_h.begin(), xs_h.end(), 15);
+		fill(xs_v.begin(), xs_v.end(), 15);
+		fill(&H[0][0], &H[0][0] + sizeof(H) + sizeof(V), 5000.0);
+
+	}
 
 	void Update() {
-		// TODO
+		// graph の値を変化させる  // 複数個変えた方が良さそう
+		// xs_h, xs_v, H, V, D が自動的に求まる
+		// D、収束してくれるかちょっとこわいかも
+		static constexpr auto n = 2 * 30 * 29;  // 辺の数
+
+		last_changed_r = rng.randint(2);
+		last_changed_yx1 = rng.randint(30);  // [0, 30)
+		last_changed_yx2 = rng.randint(29);  // [0, 29)
+		const auto d = (rng.random() - 0.5) * 200.0;  // 変化量 要調整
+		if (last_changed_r == 0) {
+			// 横移動
+			const auto& y = last_changed_yx1, & x = last_changed_yx2;
+			last_graph_value = graph.horizontal_edges[y][x];
+			graph.horizontal_edges[y][x] += d;
+		}
+		else {
+			// 縦移動
+			const auto& y = last_changed_yx2, & x = last_changed_yx1;
+			last_graph_value = graph.vertical_edges[y][x];
+			graph.vertical_edges[y][x] += d;
+		}
+
+		// xs ... 偏差平方和 (δ^2 の和) が小さくなるように 28 通り全探索
+		const auto change_horizontal = last_changed_r == 0;
+		if (last_changed_r == 0) {
+			// 横移動
+			auto r_sum_square_cost = 0.0;
+			auto r_sum_cost = 0.0;
+			for (auto i = 0; i < 29; i++) {
+				const auto& cost = change_horizontal ? graph.horizontal_edges[last_changed_yx1][i] : graph.vertical_edges[i][last_changed_yx1];
+				r_sum_square_cost += cost * cost;
+				r_sum_cost += cost;
+			}
+			auto l_sum_square_cost = 0.0;
+			auto l_sum_cost = 0.0;
+			auto mi = 1e300;  // その道路の偏差平方和 (δ^2 の和) の最小値
+			auto ami = -100;
+			auto best_l_sum_cost = -100.0;
+			auto best_r_sum_cost = -100.0;
+			for (auto i = 1; i <= 28; i++) {
+				const auto& cost = graph.horizontal_edges[last_changed_yx1][i-1];
+				l_sum_square_cost += cost * cost;
+				l_sum_cost += cost;
+				r_sum_square_cost -= cost * cost;
+				r_sum_cost -= cost;
+				const auto l_sum_square_deviation = l_sum_square_cost - l_sum_cost * l_sum_cost / (double)i;  // 偏差平方和
+				const auto r_sum_square_deviation = r_sum_square_cost - r_sum_cost * r_sum_cost / (double)(29 - i);  // 偏差平方和
+				if (chmin(mi, l_sum_square_deviation + r_sum_square_deviation)) {
+					ami = i;
+					best_l_sum_cost = l_sum_cost;
+					best_r_sum_cost = r_sum_cost;
+				}
+			}
+			// H ... その道路の平均値
+			last_xs_value = xs_h[last_changed_yx1];
+			last_HV_value_0 = H[last_changed_yx1][0];
+			last_HV_value_1 = H[last_changed_yx1][1];
+			H[last_changed_yx1][0] = best_l_sum_cost / (double)ami;
+			H[last_changed_yx1][1] = best_r_sum_cost / (double)(29 - ami);
+
+			// D ... 不偏分散の平方根 sum_辺 δ^2 / (n-1) とする
+			last_sum_deltas_value = sum_deltas_h[last_changed_yx1];
+			sum_deltas_h[last_changed_yx1] = mi;
+			sum_delta += mi - last_sum_deltas_value;
+		}
+		else {
+			
+		}
+
+
+		// H, V ... その道路の平均値
+		// D ... 不偏分散の平方根 sum_辺 δ^2 / (n-1) とする
+
+		// TODO: xs_h, xs_v, H, V, D
+		// score の差分計算、ちょっと厄介？
+
 	}
 	void Undo() {
 		// TODO
 	}
 	void CalcScore(const double& progress_rate = 1.0) {
+		// ある辺の重みを変えた時、差分計算に必要になるのは、
+		// - その辺を通ったターンの一覧 (e による寄与の変化) 各ターンの推定距離を保持しておくと良さそう
+		// - その道路のすべての情報 (H, x が変化するため) その道路の δ を持っておく
 		// TODO
 	}
 	void CalcScoreNaive(const double& progress_rate = 1.0) {
-		// TODO
+		// 負の対数尤度を愚直計算
+		// δ と γ は正規分布で近似する。このとき σ^2 = D^2 / 3
+		//      e も正規分布で近似する。このとき σ^2 = 300
+		// H は…どうしよう 影響小さいし無視でいいかな 分布を仮定しないことにする
+		// 結局、(sum_辺 (logD + 3δ^2/D^2)) + (sum_パス 150*(e-1)^2)
+		// と見せかけて、δ は D で表せて定数項になるので、結局 (2*30*29 logD) + (sum_パス 150*(e-1)^2)
+		// D を直接扱うのは手間なので、 (2*30*29 * 0.5 log sum_deltas) + (sum_パス 150*(e-1)^2)
+
+		auto negative_log_likelihood_by_delta = 0.0;  // 負の対数尤度のうち、δ と γ による寄与
+		auto negative_log_likilihood_by_e = 0.0;      // 負の対数尤度のうち、e による寄与
+
+		// δ
+		/*
+		for (auto y = 0; y < 30; y++) {
+			for (auto x = 0; x < 29; x++) {
+				const auto estimated_edge_cost = graph.horizontal_edges[y][x];
+				const auto estimated_base_edge_cost = H[y][(int)(x >= xs_h[y])];
+				const auto delta = estimated_edge_cost - estimated_base_edge_cost;
+				negative_log_likelihood_by_delta += delta * delta;
+			}
+		}
+		for (auto x = 0; x < 30; x++) {
+			for (auto y = 0; y < 29; y++) {
+				const auto estimated_edge_cost = graph.vertical_edges[y][x];
+				const auto estimated_base_edge_cost = V[x][(int)(y >= xs_v[x])];
+				const auto delta = estimated_edge_cost - estimated_base_edge_cost;
+				negative_log_likelihood_by_delta += delta * delta;
+			}
+		}
+		negative_log_likelihood_by_delta *= 1.5 / (D * D);
+		negative_log_likelihood_by_delta += 2 * 30 * 29 * log(D);
+		*/
+		negative_log_likelihood_by_delta += 2 * 30 * 29 * 0.5 * log(sum_delta);
+
+		// e
+		for (auto turn = 0; turn < Info::turn; turn++) {  // <= 1000
+			auto p = input.S[turn];
+			const auto& path = Info::paths[turn];
+			auto estimated_path_cost = 0.0;
+			for (const auto& d : path) {  // 30 くらい
+				switch (d) {
+				case Direction::D:
+					estimated_path_cost += graph.vertical_edges[p.y][p.x];
+					p.y++;
+					break;
+				case Direction::R:
+					estimated_path_cost += graph.horizontal_edges[p.y][p.x];
+					p.x++;
+					break;
+				case Direction::U:
+					p.y--;
+					estimated_path_cost += graph.vertical_edges[p.y][p.x];
+					break;
+				case Direction::L:
+					p.x--;
+					estimated_path_cost += graph.horizontal_edges[p.y][p.x];
+					break;
+				}
+			}
+			const auto& actual_cost = Info::results[turn];
+			const auto estimated_e = actual_cost / estimated_path_cost;
+			negative_log_likilihood_by_e += (estimated_e - 1.0) * (estimated_e - 1.0);
+		}
+		negative_log_likilihood_by_e *= 150.0;
+
+		score = negative_log_likelihood_by_delta + negative_log_likelihood_by_delta;
+	}
+
+	double D() const {
+		return sqrt(sum_delta / (double)(2 * 30 * 29 - 1));
 	}
 };
 
@@ -542,6 +719,7 @@ struct Solver {
 	}
 
 	string Solve() {
+		// 結果は Info::paths に格納され、文字列化したものを返す
 		// TODO
 	}
 };
@@ -583,6 +761,8 @@ namespace Info {
 	auto turn = 0;                                 // 0-999
 	auto next_score_coef = 0.0003129370833884096;  // 0.998 ^ (999-turn)
 	auto results = Stack<double, 1000>();
+	auto paths = Stack<Stack<Direction, 1000>, 1000>();         // 過去に出力したパス
+	auto n_tried = Graph<int>(0);                  // その辺を何回通ったか  // TODO: 更新
 }
 
 int main(){
