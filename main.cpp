@@ -411,8 +411,7 @@ template<class State> struct SimulatedAnnealing {
 			if (t > time_limit) break;
 			const double progress_rate = t / time_limit;
 
-			state->Update();
-			state->CalcScore(progress_rate);
+			state->Update(progress_rate);
 			const double new_score = state->score;
 			if (chmin(best_score, new_score)) {
 				//cout << "improved! new_score=" << new_score << " progress=" << progress_rate << endl;
@@ -568,7 +567,7 @@ struct State {
 	array<int, 30> xs_h, xs_v;                 // どこで変わるか [1, 28]
 	array<array<double, 2>, 30> H, V;          // 道の強さ基準値
 	array<double, 30> sum_deltas_h, sum_deltas_v;  // 各道路の δ^2 の和
-	Stack<double, 1000> estimated_path_distances;  // 各ターンの推定距離  // TODO: 初期化
+	Stack<double, 999> estimated_path_distances;  // 各ターンの推定距離  // TODO: 初期化
 	double score;                              // 負の対数尤度 (最小化)
 
 
@@ -577,18 +576,50 @@ struct State {
 	double last_difference, last_HV_value_0, last_HV_value_1, last_sum_deltas_value, last_score;
 
 
-	State() : graph(5000.0), M(2), xs_h(), xs_v(), H(), V(), sum_deltas_h(), sum_deltas_v(), estimated_path_distances(), score(1e300),
+	State() : graph(5000.0), sum_delta(0.0), M(2), xs_h(), xs_v(), H(), V(), sum_deltas_h(), sum_deltas_v(), estimated_path_distances(), score(0.0),
 		last_changed_r(), last_changed_yx1(), last_changed_yx21(), last_changed_yx22(), last_xs_value(), last_difference(), last_HV_value_0(), last_HV_value_1(), last_sum_deltas_value(), last_score()
 	{
-		// TODO
-
+		// xs, H, V の初期化
 		fill(xs_h.begin(), xs_h.end(), 15);
 		fill(xs_v.begin(), xs_v.end(), 15);
 		fill(&H[0][0], &H[0][0] + sizeof(H) + sizeof(V), 5000.0);
 
+		// sum_deltas_h, sum_deltas_v は 0 で初期化されるよね？
 	}
 
-	void Update() {
+	void Step() {
+		// 最初以外のターンの開始時に呼ばれて、新しいパスの文のスコアを加算する
+		ASSERT_RANGE(Info::turn, 1, 1000);
+		const auto& path = Info::paths[Info::turn - 1];
+		const auto& observed_distance = Info::results[Info::turn - 1];
+		auto estimated_distance = 0.0;
+		auto p = input.S[Info::turn];
+		for (const auto& d : path) {
+			switch (d) {
+			case Direction::D:
+				estimated_distance += graph.vertical_edges[p.y][p.x];
+				p.y++;
+				break;
+			case Direction::R:
+				estimated_distance += graph.horizontal_edges[p.y][p.x];
+				p.x++;
+				break;
+			case Direction::U:
+				p.y--;
+				estimated_distance += graph.vertical_edges[p.y][p.x];
+				break;
+			case Direction::L:
+				p.x--;
+				estimated_distance += graph.horizontal_edges[p.y][p.x];
+				break;
+			}
+		}
+		const auto estimated_e = observed_distance / estimated_distance;
+		score += 150.0 * (estimated_e - 1.0) * (estimated_e - 1.0);
+		estimated_path_distances.push(estimated_distance);
+	}
+
+	void Update(const double& progress_rate) {
 		// graph の値を変化させる  // 複数個変えた方が良さそう
 		// xs_h, xs_v, H, V, D が自動的に求まる
 		// D、収束してくれるかちょっとこわいかも
@@ -660,7 +691,10 @@ struct State {
 
 		// スコア差分計算 (δ の寄与)
 		last_score = score;
-		score += (double)n * 0.5 * log(sum_delta / old_sum_delta);
+		score += (double)n * 0.5 * log(
+			max(sum_delta, (double)(100*100*(n-1)))  // D >= 100 であるから、 sum δ^2 >= 100^2 (n-1)
+			/ max(old_sum_delta, (double)(100*100*(n-1)))
+		);
 
 		// スコア差分計算 (e の寄与)
 		auto diff_negative_log_likilihood_by_e = 0.0;
@@ -718,12 +752,6 @@ struct State {
 			auto& cost = change_horizontal ? graph.horizontal_edges[last_changed_yx1][i] : graph.vertical_edges[i][last_changed_yx1];
 			cost -= last_difference;
 		}
-	}
-	void CalcScore(const double& progress_rate = 1.0) {
-		// ある辺の重みを変えた時、差分計算に必要になるのは、
-		// - その辺を通ったターンの一覧 (e による寄与の変化) 各ターンの推定距離を保持しておくと良さそう
-		// - その道路のすべての情報 (H, x が変化するため) その道路の δ を持っておく
-		// TODO
 	}
 	void CalcScoreNaive(const double& progress_rate = 1.0) {
 		// 負の対数尤度を愚直計算
