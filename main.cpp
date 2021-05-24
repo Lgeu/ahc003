@@ -577,7 +577,7 @@ struct State {
 	double last_difference, last_HV_value_0, last_HV_value_1, last_sum_deltas_value, last_score;
 
 
-	State() : graph(5000.0), M(2), xs_h(), xs_v(), H(), V(), sum_deltas_h(), sum_deltas_v(), score(1e300),
+	State() : graph(5000.0), M(2), xs_h(), xs_v(), H(), V(), sum_deltas_h(), sum_deltas_v(), estimated_path_distances(), score(1e300),
 		last_changed_r(), last_changed_yx1(), last_changed_yx21(), last_changed_yx22(), last_xs_value(), last_difference(), last_HV_value_0(), last_HV_value_1(), last_sum_deltas_value(), last_score()
 	{
 		// TODO
@@ -687,7 +687,37 @@ struct State {
 
 	}
 	void Undo() {
-		// TODO
+		const auto change_horizontal = last_changed_r == 1;
+
+		score = last_score;
+
+		// estimated_path_distances の復元
+		const auto mask = (1u << last_changed_yx22) - (1u << last_changed_yx21);
+		const auto& turn_patterns = change_horizontal ? Info::horizontal_road_to_turns[last_changed_yx1] : Info::vertical_road_to_turns[last_changed_yx1];
+		for (const auto& turn_pattern : turn_patterns) {
+			const auto& turn = turn_pattern.first;
+			const auto& pattern = turn_pattern.second;
+			const auto n_used_edges = popcount(mask & pattern);
+			estimated_path_distances[turn] -= last_difference * (double)n_used_edges;  // ほとんど戻すことになることを考えるとこれは無駄…まあいいか
+		}
+
+		// sum_delta, sum_delta の復元
+		auto& sum_deltas = change_horizontal ? sum_deltas_h : sum_deltas_v;
+		sum_delta += last_sum_deltas_value - sum_deltas[last_changed_yx1];
+		sum_deltas[last_changed_yx1] = last_sum_deltas_value;
+
+		// xs, HV の復元
+		auto& xs = change_horizontal ? xs_h : xs_v;  // どこで変わるか [1, 28]
+		auto& HV = change_horizontal ? H : V;
+		xs[last_changed_yx1] = last_xs_value;
+		HV[last_changed_yx1][0] = last_HV_value_0;
+		HV[last_changed_yx1][1] = last_HV_value_1;
+
+		// 辺の重みの復元
+		for (auto i = last_changed_yx21; i < last_changed_yx22; i++) {
+			auto& cost = change_horizontal ? graph.horizontal_edges[last_changed_yx1][i] : graph.vertical_edges[i][last_changed_yx1];
+			cost -= last_difference;
+		}
 	}
 	void CalcScore(const double& progress_rate = 1.0) {
 		// ある辺の重みを変えた時、差分計算に必要になるのは、
