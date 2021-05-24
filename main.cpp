@@ -20,6 +20,10 @@
 #include<sstream>
 #include<chrono>
 #include<climits>
+#ifdef _MSC_VER
+#include<intrin0.h>
+#endif
+
 
 // ========================== macroes ==========================
 
@@ -367,6 +371,22 @@ template<typename T> inline int search_sorted(const vector<T>& vec, const T& a) 
 	return lower_bound(vec.begin(), vec.end(), a) - vec.begin();
 }
 
+// popcount  // SSE 4.2 を使うべき
+inline unsigned int popcount(const unsigned int& v) {
+#ifdef _MSC_VER
+	return __popcnt(v);
+#else
+	return __builtin_popcount(v);
+#endif
+}
+inline unsigned long long popcount(const unsigned long long& v) {
+#ifdef _MSC_VER
+	return __popcnt64(v);
+#else
+	return __builtin_popcountll(v);
+#endif
+}
+
 // ---------------------------------------------------------
 //  annealing
 // ---------------------------------------------------------
@@ -538,7 +558,6 @@ struct DancingLinks {
 	}
 
 
-
 };
 
 struct State {
@@ -549,15 +568,17 @@ struct State {
 	array<int, 30> xs_h, xs_v;                 // どこで変わるか [1, 28]
 	array<array<double, 2>, 30> H, V;          // 道の強さ基準値
 	array<double, 30> sum_deltas_h, sum_deltas_v;  // 各道路の δ^2 の和
+	Stack<double, 1000> estimated_path_distances;  // 各ターンの推定距離  // TODO: 初期化
 	double score;                              // 負の対数尤度 (最小化)
 
+
 	// Undo に必要な情報(TODO)
-	int last_changed_r, last_changed_yx1, last_changed_yx2, last_xs_value;
-	double last_graph_value, last_HV_value_0, last_HV_value_1, last_sum_deltas_value, last_score;
+	int last_changed_r, last_changed_yx1, last_changed_yx21, last_changed_yx22, last_xs_value;
+	double last_difference, last_HV_value_0, last_HV_value_1, last_sum_deltas_value, last_score;
 
 
 	State() : graph(5000.0), M(2), xs_h(), xs_v(), H(), V(), sum_deltas_h(), sum_deltas_v(), score(1e300),
-		last_changed_r(), last_changed_yx1(), last_changed_yx2(), last_xs_value(), last_graph_value(), last_HV_value_0(), last_HV_value_1(), last_sum_deltas_value(), last_score()
+		last_changed_r(), last_changed_yx1(), last_changed_yx21(), last_changed_yx22(), last_xs_value(), last_difference(), last_HV_value_0(), last_HV_value_1(), last_sum_deltas_value(), last_score()
 	{
 		// TODO
 
@@ -575,23 +596,24 @@ struct State {
 
 		last_changed_r = rng.randint(2);
 		last_changed_yx1 = rng.randint(30);  // [0, 30)
-		last_changed_yx2 = rng.randint(29);  // [0, 29)
-		const auto d = (rng.random() - 0.5) * 200.0;  // 変化量 要調整
-		if (last_changed_r == 0) {
-			// 横移動
-			const auto& y = last_changed_yx1, & x = last_changed_yx2;
-			last_graph_value = graph.horizontal_edges[y][x];
-			graph.horizontal_edges[y][x] += d;
-		}
-		else {
-			// 縦移動
-			const auto& y = last_changed_yx2, & x = last_changed_yx1;
-			last_graph_value = graph.vertical_edges[y][x];
-			graph.vertical_edges[y][x] += d;
+		do {
+			last_changed_yx21 = rng.randint(1, 29);  // 区切り位置を選ぶ [1, 29)
+			last_changed_yx22 = clipped(rng.randint(-15, 45), 0, 29);  // 区切り位置を選ぶ [0, 30)
+		} while (last_changed_yx21 == last_changed_yx22);
+		if (last_changed_yx21 > last_changed_yx22) swap(last_changed_yx21, last_changed_yx22);
+		// TODO: 未探索の道路を変更しない処理
+
+		last_difference = (rng.random() - 0.5) * 200.0;  // 変化量 要調整
+
+		const auto change_horizontal = last_changed_r == 1;
+
+		// 辺の重み変更
+		for (auto i = last_changed_yx21; i < last_changed_yx22; i++) {
+			auto& cost = change_horizontal ? graph.horizontal_edges[last_changed_yx1][i] : graph.vertical_edges[i][last_changed_yx1];
+			cost += last_difference;
 		}
 
 		// xs ... 偏差平方和 (δ^2 の和) が小さくなるように 28 通り全探索
-		const auto change_horizontal = last_changed_r == 0;
 		auto r_sum_square_cost = 0.0;
 		auto r_sum_cost = 0.0;
 		for (auto i = 0; i < 29; i++) {
@@ -633,12 +655,35 @@ struct State {
 		auto& sum_deltas = change_horizontal ? sum_deltas_h : sum_deltas_v;  // 各道路の δ^2 の和
 		last_sum_deltas_value = sum_deltas[last_changed_yx1];
 		sum_deltas[last_changed_yx1] = mi;
+		const auto old_sum_delta = sum_delta;
 		sum_delta += mi - last_sum_deltas_value;
 
-		// スコア差分計算
+		// スコア差分計算 (δ の寄与)
 		last_score = score;
+		score += (double)n * 0.5 * log(sum_delta / old_sum_delta);
 
-		// TODO: score の差分計算、ちょっと厄介？
+		// スコア差分計算 (e の寄与)
+		auto diff_negative_log_likilihood_by_e = 0.0;
+		const auto mask = (1u << last_changed_yx22) - (1u << last_changed_yx21);
+		const auto& turn_patterns = change_horizontal ? Info::horizontal_road_to_turns[last_changed_yx1] : Info::vertical_road_to_turns[last_changed_yx1];
+		for (const auto& turn_pattern : turn_patterns) {
+			const auto& turn = turn_pattern.first;
+			const auto& pattern = turn_pattern.second;
+			const auto n_used_edges = popcount(mask & pattern);
+
+			// 古いものを引く
+			const auto& old_estimated_path_distance = estimated_path_distances[turn];
+			const auto old_estimated_e = Info::results[turn] - old_estimated_path_distance;
+			diff_negative_log_likilihood_by_e -= (old_estimated_e - 1.0) * (old_estimated_e - 1.0);
+
+			// 新しいものを足す
+			estimated_path_distances[turn] += last_difference * (double)n_used_edges;  // ほとんど戻すことになることを考えるとこれは無駄…まあいいか
+			const auto& estimated_path_distance = estimated_path_distances[turn];
+			const auto estimated_e = Info::results[turn] - estimated_path_distance;
+			diff_negative_log_likilihood_by_e += (estimated_e - 1.0) * (estimated_e - 1.0);
+		}
+		diff_negative_log_likilihood_by_e *= 150.0;
+		score += diff_negative_log_likilihood_by_e;
 
 	}
 	void Undo() {
@@ -788,13 +833,15 @@ auto local_tester = LocalTester();
 auto solver = Solver(rng);
 
 namespace Info {
-	auto turn = 0;                                                              // 0-999
-	auto next_score_coef = 0.0003129370833884096;                               // 0.998 ^ (999-turn)
-	auto results = Stack<double, 1000>();                                       // 実際の所要時間
-	auto paths = Stack<Stack<Direction, 1000>, 1000>();                         // 過去に出力したパス
-	auto n_tried = Graph<int>(0);                                               // その辺を何回通ったか  // TODO: 更新
-	auto horizontal_edge_to_turn = array<array<Stack<short, 1000>, 30>, 29>();  // 辺を入れると、その辺を通ったターンを返してくれる  // TODO: 更新
-	auto vertical_edge_to_turn = array<array<Stack<short, 1000>, 30>, 29>();    // 辺を入れると、その辺を通ったターンを返してくれる  // TODO: 更新
+	auto turn = 0;                                                               // 0-999
+	auto next_score_coef = 0.0003129370833884096;                                // 0.998 ^ (999-turn)
+	auto results = Stack<double, 1000>();                                        // 実際の所要時間
+	auto paths = Stack<Stack<Direction, 1000>, 1000>();                          // 過去に出力したパス
+	auto n_tried = Graph<int>(0);                                                // その辺を何回通ったか  // TODO: 更新
+	auto horizontal_edge_to_turns = array<array<Stack<short, 1000>, 30>, 29>();  // 辺を入れると、その辺を通ったターンを返してくれる  // TODO: 更新
+	auto vertical_edge_to_turns = array<array<Stack<short, 1000>, 30>, 29>();    // 辺を入れると、その辺を通ったターンを返してくれる  // TODO: 更新
+	auto horizontal_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();  // 道を入れると、その辺を通ったターンと通った辺を返してくれる  // TODO: 更新
+	auto vertical_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();    // 道を入れると、その辺を通ったターンと通った辺を返してくれる  // TODO: 更新
 }
 
 int main(){
