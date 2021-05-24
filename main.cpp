@@ -507,6 +507,40 @@ struct Graph{
 	}
 };
 
+struct DancingLinks {
+	// ひとつずらして持つ
+	struct Node {
+		signed char d, r, u, l;
+		Node() : d(-2), r(-2), u(-2), l(-2) {}
+	};
+	array<array<Node, 32>, 32> data;
+	DancingLinks() = default;
+	inline void Add(int y, int x) {
+		ASSERT_RANGE(y, 0, 30);
+		ASSERT_RANGE(x, 0, 30);
+		y++;
+		x++;
+		auto& node = data[y][x];
+
+		if (node.d != -2) return;
+
+		// 上を探す
+		for (node.u = y - 1; data[node.u][x].d == -2; node.u--);
+		node.d = data[node.u][x].d;
+		data[node.u][x].d = y;
+		data[node.d][x].u = y;
+
+		// 左を探す
+		for (node.l = x - 1; data[y][node.l].d == -2; node.l--);
+		node.r = data[y][node.l].r;
+		data[y][node.l].r = x;
+		data[y][node.r].l = x;
+	}
+
+
+
+};
+
 struct State {
 	Graph<double> graph;                       // 各辺の予測値
 	//double D;                                  // ばらつき [100, 2000]  // D = sqrt(sum_delta / (n-1)) とかなので、必要ない
@@ -522,7 +556,7 @@ struct State {
 	double last_graph_value, last_HV_value_0, last_HV_value_1, last_sum_deltas_value, last_score;
 
 
-	State() : graph(5000.0), D(2000.0), M(2), xs_h(), xs_v(), H(), V(), sum_deltas_h(), sum_deltas_v(), score(1e300),
+	State() : graph(5000.0), M(2), xs_h(), xs_v(), H(), V(), sum_deltas_h(), sum_deltas_v(), score(1e300),
 		last_changed_r(), last_changed_yx1(), last_changed_yx2(), last_xs_value(), last_graph_value(), last_HV_value_0(), last_HV_value_1(), last_sum_deltas_value(), last_score()
 	{
 		// TODO
@@ -558,57 +592,53 @@ struct State {
 
 		// xs ... 偏差平方和 (δ^2 の和) が小さくなるように 28 通り全探索
 		const auto change_horizontal = last_changed_r == 0;
-		if (last_changed_r == 0) {
-			// 横移動
-			auto r_sum_square_cost = 0.0;
-			auto r_sum_cost = 0.0;
-			for (auto i = 0; i < 29; i++) {
-				const auto& cost = change_horizontal ? graph.horizontal_edges[last_changed_yx1][i] : graph.vertical_edges[i][last_changed_yx1];
-				r_sum_square_cost += cost * cost;
-				r_sum_cost += cost;
-			}
-			auto l_sum_square_cost = 0.0;
-			auto l_sum_cost = 0.0;
-			auto mi = 1e300;  // その道路の偏差平方和 (δ^2 の和) の最小値
-			auto ami = -100;
-			auto best_l_sum_cost = -100.0;
-			auto best_r_sum_cost = -100.0;
-			for (auto i = 1; i <= 28; i++) {
-				const auto& cost = graph.horizontal_edges[last_changed_yx1][i-1];
-				l_sum_square_cost += cost * cost;
-				l_sum_cost += cost;
-				r_sum_square_cost -= cost * cost;
-				r_sum_cost -= cost;
-				const auto l_sum_square_deviation = l_sum_square_cost - l_sum_cost * l_sum_cost / (double)i;  // 偏差平方和
-				const auto r_sum_square_deviation = r_sum_square_cost - r_sum_cost * r_sum_cost / (double)(29 - i);  // 偏差平方和
-				if (chmin(mi, l_sum_square_deviation + r_sum_square_deviation)) {
-					ami = i;
-					best_l_sum_cost = l_sum_cost;
-					best_r_sum_cost = r_sum_cost;
-				}
-			}
-			// H ... その道路の平均値
-			last_xs_value = xs_h[last_changed_yx1];
-			last_HV_value_0 = H[last_changed_yx1][0];
-			last_HV_value_1 = H[last_changed_yx1][1];
-			H[last_changed_yx1][0] = best_l_sum_cost / (double)ami;
-			H[last_changed_yx1][1] = best_r_sum_cost / (double)(29 - ami);
-
-			// D ... 不偏分散の平方根 sum_辺 δ^2 / (n-1) とする
-			last_sum_deltas_value = sum_deltas_h[last_changed_yx1];
-			sum_deltas_h[last_changed_yx1] = mi;
-			sum_delta += mi - last_sum_deltas_value;
+		auto r_sum_square_cost = 0.0;
+		auto r_sum_cost = 0.0;
+		for (auto i = 0; i < 29; i++) {
+			const auto& cost = change_horizontal ? graph.horizontal_edges[last_changed_yx1][i] : graph.vertical_edges[i][last_changed_yx1];
+			r_sum_square_cost += cost * cost;
+			r_sum_cost += cost;
 		}
-		else {
-			
+		auto l_sum_square_cost = 0.0;
+		auto l_sum_cost = 0.0;
+		auto mi = 1e300;  // その道路の偏差平方和 (δ^2 の和) の最小値
+		auto ami = -100;
+		auto best_l_sum_cost = -100.0;
+		auto best_r_sum_cost = -100.0;
+		for (auto i = 1; i <= 28; i++) {
+			const auto& cost = change_horizontal ? graph.horizontal_edges[last_changed_yx1][i] : graph.vertical_edges[i][last_changed_yx1];
+			l_sum_square_cost += cost * cost;
+			l_sum_cost += cost;
+			r_sum_square_cost -= cost * cost;
+			r_sum_cost -= cost;
+			const auto l_sum_square_deviation = l_sum_square_cost - l_sum_cost * l_sum_cost / (double)i;  // 偏差平方和
+			const auto r_sum_square_deviation = r_sum_square_cost - r_sum_cost * r_sum_cost / (double)(29 - i);  // 偏差平方和
+			if (chmin(mi, l_sum_square_deviation + r_sum_square_deviation)) {
+				ami = i;
+				best_l_sum_cost = l_sum_cost;
+				best_r_sum_cost = r_sum_cost;
+			}
 		}
-
-
 		// H, V ... その道路の平均値
-		// D ... 不偏分散の平方根 sum_辺 δ^2 / (n-1) とする
+		auto& xs = change_horizontal ? xs_h : xs_v;  // どこで変わるか [1, 28]
+		auto& HV = change_horizontal ? H : V;
+		last_xs_value = xs[last_changed_yx1];
+		last_HV_value_0 = HV[last_changed_yx1][0];
+		last_HV_value_1 = HV[last_changed_yx1][1];
+		xs[last_changed_yx1] = ami;
+		HV[last_changed_yx1][0] = best_l_sum_cost / (double)ami;
+		HV[last_changed_yx1][1] = best_r_sum_cost / (double)(29 - ami);
 
-		// TODO: xs_h, xs_v, H, V, D
-		// score の差分計算、ちょっと厄介？
+		// D ... 不偏分散の平方根 sum_辺 δ^2 / (n-1) とする
+		auto& sum_deltas = change_horizontal ? sum_deltas_h : sum_deltas_v;  // 各道路の δ^2 の和
+		last_sum_deltas_value = sum_deltas[last_changed_yx1];
+		sum_deltas[last_changed_yx1] = mi;
+		sum_delta += mi - last_sum_deltas_value;
+
+		// スコア差分計算
+		last_score = score;
+
+		// TODO: score の差分計算、ちょっと厄介？
 
 	}
 	void Undo() {
@@ -758,11 +788,13 @@ auto local_tester = LocalTester();
 auto solver = Solver(rng);
 
 namespace Info {
-	auto turn = 0;                                 // 0-999
-	auto next_score_coef = 0.0003129370833884096;  // 0.998 ^ (999-turn)
-	auto results = Stack<double, 1000>();
-	auto paths = Stack<Stack<Direction, 1000>, 1000>();         // 過去に出力したパス
-	auto n_tried = Graph<int>(0);                  // その辺を何回通ったか  // TODO: 更新
+	auto turn = 0;                                                              // 0-999
+	auto next_score_coef = 0.0003129370833884096;                               // 0.998 ^ (999-turn)
+	auto results = Stack<double, 1000>();                                       // 実際の所要時間
+	auto paths = Stack<Stack<Direction, 1000>, 1000>();                         // 過去に出力したパス
+	auto n_tried = Graph<int>(0);                                               // その辺を何回通ったか  // TODO: 更新
+	auto horizontal_edge_to_turn = array<array<Stack<short, 1000>, 30>, 29>();  // 辺を入れると、その辺を通ったターンを返してくれる  // TODO: 更新
+	auto vertical_edge_to_turn = array<array<Stack<short, 1000>, 30>, 29>();    // 辺を入れると、その辺を通ったターンを返してくれる  // TODO: 更新
 }
 
 int main(){
