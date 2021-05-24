@@ -387,22 +387,327 @@ inline unsigned long long popcount(const unsigned long long& v) {
 #endif
 }
 
+/*
+#ifdef _MSC_VER
+inline unsigned int __builtin_clz(const unsigned int& x) { unsigned long r; _BitScanReverse(&r, x); return 31 - r; }
+inline unsigned long long __builtin_clzll(const unsigned long long& x) { unsigned long r; _BitScanReverse64(&r, x); return 63 - r; }
+#endif
+*/
+
+
+/*
+iwi 先生の radix heap (https://github.com/iwiwi/radix-heap)
+
+The MIT License (MIT)
+Copyright (c) 2015 Takuya Akiba
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+namespace radix_heap {
+	namespace internal {
+		template<bool Is64bit> class find_bucket_impl;
+
+		template<>
+		class find_bucket_impl<false> {
+		public:
+			static inline constexpr size_t find_bucket(uint32_t x, uint32_t last) {
+				return x == last ? 0 : 32 - __builtin_clz(x ^ last);
+			}
+		};
+
+		template<>
+		class find_bucket_impl<true> {
+		public:
+			static inline constexpr size_t find_bucket(uint64_t x, uint64_t last) {
+				return x == last ? 0 : 64 - __builtin_clzll(x ^ last);
+			}
+		};
+
+		template<typename T>
+		inline constexpr size_t find_bucket(T x, T last) {
+			return find_bucket_impl<sizeof(T) == 8>::find_bucket(x, last);
+		}
+
+		template<typename KeyType, bool IsSigned> class encoder_impl_integer;
+
+		template<typename KeyType>
+		class encoder_impl_integer<KeyType, false> {
+		public:
+			typedef KeyType key_type;
+			typedef KeyType unsigned_key_type;
+
+			inline static constexpr unsigned_key_type encode(key_type x) {
+				return x;
+			}
+
+			inline static constexpr key_type decode(unsigned_key_type x) {
+				return x;
+			}
+		};
+
+		template<typename KeyType>
+		class encoder_impl_integer<KeyType, true> {
+		public:
+			typedef KeyType key_type;
+			typedef typename std::make_unsigned<KeyType>::type unsigned_key_type;
+
+			inline static constexpr unsigned_key_type encode(key_type x) {
+				return static_cast<unsigned_key_type>(x) ^
+					(unsigned_key_type(1) << unsigned_key_type(std::numeric_limits<unsigned_key_type>::digits - 1));
+			}
+
+			inline static constexpr key_type decode(unsigned_key_type x) {
+				return static_cast<key_type>
+					(x ^ (unsigned_key_type(1) << (std::numeric_limits<unsigned_key_type>::digits - 1)));
+			}
+		};
+
+		template<typename KeyType, typename UnsignedKeyType>
+		class encoder_impl_decimal {
+		public:
+			typedef KeyType key_type;
+			typedef UnsignedKeyType unsigned_key_type;
+
+			inline static constexpr unsigned_key_type encode(key_type x) {
+				return raw_cast<key_type, unsigned_key_type>(x) ^
+					((-(raw_cast<key_type, unsigned_key_type>(x) >> (std::numeric_limits<unsigned_key_type>::digits - 1))) |
+						(unsigned_key_type(1) << (std::numeric_limits<unsigned_key_type>::digits - 1)));
+			}
+
+			inline static constexpr key_type decode(unsigned_key_type x) {
+				return raw_cast<unsigned_key_type, key_type>
+					(x ^ (((x >> (std::numeric_limits<unsigned_key_type>::digits - 1)) - 1) |
+						(unsigned_key_type(1) << (std::numeric_limits<unsigned_key_type>::digits - 1))));
+			}
+
+		private:
+			template<typename T, typename U>
+			union raw_cast {
+			public:
+				constexpr raw_cast(T t) : t_(t) {}
+				operator U() const { return u_; }
+
+			private:
+				T t_;
+				U u_;
+			};
+		};
+
+		template<typename KeyType>
+		class encoder : public encoder_impl_integer<KeyType, std::is_signed<KeyType>::value> {};
+		template<>
+		class encoder<float> : public encoder_impl_decimal<float, uint32_t> {};
+		template<>
+		class encoder<double> : public encoder_impl_decimal<double, uint64_t> {};
+	}  // namespace internal
+
+	template<typename KeyType, typename EncoderType = internal::encoder<KeyType>>
+	class radix_heap {
+	public:
+		typedef KeyType key_type;
+		typedef EncoderType encoder_type;
+		typedef typename encoder_type::unsigned_key_type unsigned_key_type;
+
+		radix_heap() : size_(0), last_(), buckets_() {
+			buckets_min_.fill(std::numeric_limits<unsigned_key_type>::max());
+		}
+
+		void push(key_type key) {
+			const unsigned_key_type x = encoder_type::encode(key);
+			assert(last_ <= x);
+			++size_;
+			const size_t k = internal::find_bucket(x, last_);
+			buckets_[k].emplace_back(x);
+			buckets_min_[k] = std::min(buckets_min_[k], x);
+		}
+
+		key_type top() {
+			pull();
+			return encoder_type::decode(last_);
+		}
+
+		void pop() {
+			pull();
+			buckets_[0].pop_back();
+			--size_;
+		}
+
+		size_t size() const {
+			return size_;
+		}
+
+		bool empty() const {
+			return size_ == 0;
+		}
+
+		void clear() {
+			size_ = 0;
+			last_ = key_type();
+			for (auto& b : buckets_) b.clear();
+			buckets_min_.fill(std::numeric_limits<unsigned_key_type>::max());
+		}
+
+		void swap(radix_heap<KeyType, EncoderType>& a) {
+			std::swap(size_, a.size_);
+			std::swap(last_, a.last_);
+			buckets_.swap(a.buckets_);
+			buckets_min_.swap(a.buckets_min_);
+		}
+
+	private:
+		size_t size_;
+		unsigned_key_type last_;
+		std::array<std::vector<unsigned_key_type>,
+			std::numeric_limits<unsigned_key_type>::digits + 1> buckets_;
+		std::array<unsigned_key_type,
+			std::numeric_limits<unsigned_key_type>::digits + 1> buckets_min_;
+
+		void pull() {
+			assert(size_ > 0);
+			if (!buckets_[0].empty()) return;
+
+			size_t i;
+			for (i = 1; buckets_[i].empty(); ++i);
+			last_ = buckets_min_[i];
+
+			for (unsigned_key_type x : buckets_[i]) {
+				const size_t k = internal::find_bucket(x, last_);
+				buckets_[k].emplace_back(x);
+				buckets_min_[k] = std::min(buckets_min_[k], x);
+			}
+			buckets_[i].clear();
+			buckets_min_[i] = std::numeric_limits<unsigned_key_type>::max();
+		}
+	};
+
+	template<typename KeyType, typename ValueType, typename EncoderType = internal::encoder<KeyType>>
+	class pair_radix_heap {
+	public:
+		typedef KeyType key_type;
+		typedef ValueType value_type;
+		typedef EncoderType encoder_type;
+		typedef typename encoder_type::unsigned_key_type unsigned_key_type;
+
+		pair_radix_heap() : size_(0), last_(), buckets_() {
+			buckets_min_.fill(std::numeric_limits<unsigned_key_type>::max());
+		}
+
+		void push(key_type key, const value_type& value) {
+			const unsigned_key_type x = encoder_type::encode(key);
+			assert(last_ <= x);
+			++size_;
+			const size_t k = internal::find_bucket(x, last_);
+			buckets_[k].emplace_back(x, value);
+			buckets_min_[k] = std::min(buckets_min_[k], x);
+		}
+
+		void push(key_type key, value_type&& value) {
+			const unsigned_key_type x = encoder_type::encode(key);
+			assert(last_ <= x);
+			++size_;
+			const size_t k = internal::find_bucket(x, last_);
+			buckets_[k].emplace_back(x, std::move(value));
+			buckets_min_[k] = std::min(buckets_min_[k], x);
+		}
+
+		template <class... Args>
+		void emplace(key_type key, Args&&... args) {
+			const unsigned_key_type x = encoder_type::encode(key);
+			assert(last_ <= x);
+			++size_;
+			const size_t k = internal::find_bucket(x, last_);
+			buckets_[k].emplace_back(std::piecewise_construct,
+				std::forward_as_tuple(x), std::forward_as_tuple(args...));
+			buckets_min_[k] = std::min(buckets_min_[k], x);
+		}
+
+		key_type top_key() {
+			pull();
+			return encoder_type::decode(last_);
+		}
+
+		value_type& top_value() {
+			pull();
+			return buckets_[0].back().second;
+		}
+
+		void pop() {
+			pull();
+			buckets_[0].pop_back();
+			--size_;
+		}
+
+		size_t size() const {
+			return size_;
+		}
+
+		bool empty() const {
+			return size_ == 0;
+		}
+
+		void clear() {
+			size_ = 0;
+			last_ = key_type();
+			for (auto& b : buckets_) b.clear();
+			buckets_min_.fill(std::numeric_limits<unsigned_key_type>::max());
+		}
+
+		void swap(pair_radix_heap<KeyType, ValueType, EncoderType>& a) {
+			std::swap(size_, a.size_);
+			std::swap(last_, a.last_);
+			buckets_.swap(a.buckets_);
+			buckets_min_.swap(a.buckets_min_);
+		}
+
+	private:
+		size_t size_;
+		unsigned_key_type last_;
+		std::array<std::vector<std::pair<unsigned_key_type, value_type>>,
+			std::numeric_limits<unsigned_key_type>::digits + 1> buckets_;
+		std::array<unsigned_key_type,
+			std::numeric_limits<unsigned_key_type>::digits + 1> buckets_min_;
+
+		void pull() {
+			assert(size_ > 0);
+			if (!buckets_[0].empty()) return;
+
+			size_t i;
+			for (i = 1; buckets_[i].empty(); ++i);
+			last_ = buckets_min_[i];
+
+			for (size_t j = 0; j < buckets_[i].size(); ++j) {
+				const unsigned_key_type x = buckets_[i][j].first;
+				const size_t k = internal::find_bucket(x, last_);
+				buckets_[k].emplace_back(std::move(buckets_[i][j]));
+				buckets_min_[k] = std::min(buckets_min_[k], x);
+			}
+			buckets_[i].clear();
+			buckets_min_[i] = std::numeric_limits<unsigned_key_type>::max();
+		}
+	};
+}  // namespace radix_heap
+
+
 // ---------------------------------------------------------
 //  annealing
 // ---------------------------------------------------------
 
 // 焼きなまし（最小化）
 template<class State> struct SimulatedAnnealing {
-	State* state;
+	State* state;  // score, Update(const double&), Undo(), operator=(State&) の実装が必要。operator= が必要なので、State のメンバにはポインタを置かないほうが楽
 	Random* rng;
 	double best_score;
-	State best_state;
+	State best_state;  // TODO: これなくしたほうがいいかも？
 
 	inline SimulatedAnnealing(State& arg_state, Random& arg_rng) :
-		state(&arg_state), rng(&arg_rng), best_score(1e300) {}
+		state(&arg_state), rng(&arg_rng), best_score() {}
 
+	// 呼ばれる前の state は正常 (スコアが正しいなど) である必要がある
 	template<double (*temperature_schedule)(const double&)> void optimize(const double time_limit) {
 		const double t0 = time();
+		best_score = state->score;
+		best_state = *state;
 		double old_score = state->score;
 		int iteration = 0;
 		while (true) {
@@ -425,7 +730,7 @@ template<class State> struct SimulatedAnnealing {
 				old_score = new_score;
 			}
 			else {
-				// 遷移しない（戻す）
+				// 遷移しない (戻す)
 				state->Undo();
 			}
 		}
@@ -828,31 +1133,149 @@ struct State {
 };
 
 struct Estimator {
-	State state;
+	State* state;
 	SimulatedAnnealing<State> annealing;
-	Estimator(Random& rng) : state(), annealing(state, rng) {
-
+	Estimator(State& arg_state) : state(&arg_state), annealing(arg_state, rng) {}
+	void Step() {
+		if (Info::turn % 10 == 5) {
+			const auto end_time = 1.9 * (double)Info::turn / 1000.0;
+			annealing.optimize<Schedule>(end_time - time());  // TODO: 確認
+		}
 	}
-	// TODO
-
+	static double Schedule(const double& r) {
+		return 1e-9;  // 山登り
+	}
 };
 
 struct Explorer {
-	// TODO
+	struct Node {
+		signed char y, x;
+		bool h;
+	};
+	State* state;
+	array<array<array<double, 2>, 30>, 30> distances;
+	array<array<array<Node, 2>, 30>, 30> from;
+	Explorer(State& arg_state) : state(&arg_state) {}
+
+	// 
+	void Step() {
+		// ダイクストラで最短路を見つける
+		const auto turning_cost = Info::turn < 100 ? 1e7 : Info::turn < 300 ? 1e4 : 0.0;
+		constexpr auto inf = numeric_limits<double>::max();
+		fill(&distances[0][0][0], &distances[0][0][0] + sizeof(distances), inf);
+
+		const auto& start = input.S[Info::turn];
+		const auto& goal = input.T[Info::turn];
+		distances[start.y][start.x][0] = 0.0;  // 縦
+		distances[start.y][start.x][1] = 0.0;  // 横
+
+		using i8 = signed char;
+		auto q = radix_heap::pair_radix_heap<double, Node>();
+		q.push(0.0, Node{ (i8)start.y, (i8)start.x, false });
+		q.push(0.0, Node{ (i8)start.y, (i8)start.x, true });
+		Node goal_node;
+		while (true) {
+			auto dist_v = q.top_key();
+			auto v = q.top_value();
+			q.pop();
+			if (dist_v != distances[v.y][v.x][v.h]) continue;
+			if (v.y == goal.y && v.x == goal.x) {
+				goal_node = v;
+				break;
+			}
+			// D
+			if (v.y != (i8)29) {
+				const auto u = Node{ v.y + (i8)1, v.x, false };
+				const auto& cost = state->graph.vertical_edges[v.y][v.x];
+				const auto& n_tried = Info::n_tried.vertical_edges[v.y][v.x];
+				auto dist_u = dist_v + max(1000.0, cost - UCB1(n_tried));
+				if (v.h != u.h) dist_u += turning_cost;
+				if (dist_u < distances[u.y][u.x][u.h]) {
+					distances[u.y][u.x][u.h] = dist_u;
+					from[u.y][u.x][u.h] = v;
+					q.push(dist_u, u);
+				}
+			}
+			// R
+			if (v.x != (i8)29) {
+				const auto u = Node{ v.y, v.x + (i8)1, true };
+				const auto& cost = state->graph.horizontal_edges[v.y][v.x];
+				const auto& n_tried = Info::n_tried.horizontal_edges[v.y][v.x];
+				auto dist_u = dist_v + max(1000.0, cost - UCB1(n_tried));
+				if (v.h != u.h) dist_u += turning_cost;
+				if (dist_u < distances[u.y][u.x][u.h]) {
+					distances[u.y][u.x][u.h] = dist_u;
+					from[u.y][u.x][u.h] = v;
+					q.push(dist_u, u);
+				}
+			}
+			// U
+			if (v.y != (i8)0) {
+				const auto u = Node{ v.y - (i8)1, v.x, false };
+				const auto& cost = state->graph.vertical_edges[u.y][u.x];
+				const auto& n_tried = Info::n_tried.vertical_edges[u.y][u.x];
+				auto dist_u = dist_v + max(1000.0, cost - UCB1(n_tried));
+				if (v.h != u.h) dist_u += turning_cost;
+				if (dist_u < distances[u.y][u.x][u.h]) {
+					distances[u.y][u.x][u.h] = dist_u;
+					from[u.y][u.x][u.h] = v;
+					q.push(dist_u, u);
+				}
+			}
+			// L
+			if (v.x != (i8)0) {
+				const auto u = Node{ v.y, v.x - (i8)1, true };
+				const auto& cost = state->graph.horizontal_edges[u.y][u.x];
+				const auto& n_tried = Info::n_tried.horizontal_edges[u.y][u.x];
+				auto dist_u = dist_v + max(1000.0, cost - UCB1(n_tried));
+				if (v.h != u.h) dist_u += turning_cost;
+				if (dist_u < distances[u.y][u.x][u.h]) {
+					distances[u.y][u.x][u.h] = dist_u;
+					from[u.y][u.x][u.h] = v;
+					q.push(dist_u, u);
+				}
+			}
+		}
+		// ダイクストラの復元
+		Info::paths.emplace();
+		auto& path = Info::paths[Info::turn];
+		auto p = goal_node;
+		while (p.y != start.x || p.x != start.x) {
+			const auto& frm = from[p.y][p.x][p.h];
+			if (p.y != frm.y) {
+				if (frm.y < p.y) path.push(Direction::D);
+				else path.push(Direction::U);
+			} else {
+				if (frm.x < p.x) path.push(Direction::R);
+				else path.push(Direction::L);
+			}
+			p = frm;
+		}
+		reverse(path.begin(), path.end());
+	}
+
+	inline double UCB1(const int& n) {
+		// log は無視
+		return 10000.0 / sqrt(n + 1) * (1.0 - Info::next_score_coef);
+	}
 };
 
 
 struct Solver {
 	// TODO
+	State state;
 	Estimator estimator;
 	Explorer explorer;
 
-	Solver(Random& rng) : estimator(rng) {
+	Solver() : estimator(state), explorer(state) {
 
 	}
 
 	string Solve() {
 		// 結果は Info::paths に格納され、文字列化したものを返す
+		state.Step();
+		estimator.Step();
+		explorer.Step();
 		// TODO
 	}
 };
@@ -888,9 +1311,10 @@ struct LocalTester{
 auto rng = Random(42);
 auto input = Input();
 auto local_tester = LocalTester();
-auto solver = Solver(rng);
+auto solver = Solver();
 
 namespace Info {
+	auto t0 = time();
 	auto turn = 0;                                                               // 0-999
 	auto next_score_coef = 0.0003129370833884096;                                // 0.998 ^ (999-turn)
 	auto results = Stack<double, 1000>();                                        // 実際の所要時間
