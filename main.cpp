@@ -1,8 +1,10 @@
 #include<iostream>
 #include<iomanip>
 #include<vector>
-#include<map>
 #include<set>
+#include<map>
+#include<unordered_set>
+#include<unordered_map>
 #include<algorithm>
 #include<numeric>
 #include<limits>
@@ -898,7 +900,7 @@ struct State {
 		const auto& path = Info::paths[Info::turn - 1];
 		const auto& observed_distance = Info::results[Info::turn - 1];
 		auto estimated_distance = 0.0;
-		auto p = input.S[Info::turn];
+		auto p = input.S[Info::turn - 1];
 		for (const auto& d : path) {
 			switch (d) {
 			case Direction::D:
@@ -1267,16 +1269,22 @@ struct Solver {
 	Estimator estimator;
 	Explorer explorer;
 
-	Solver() : estimator(state), explorer(state) {
+	Solver() : state(), estimator(state), explorer(state) {}
 
+	inline string Solve() {
+		// 結果は Info::paths に格納され、文字列化したものを返す
+		if (Info::turn != 0) {
+			state.Step();
+			estimator.Step();
+		}
+		explorer.Step();
+		return stringify(Info::paths[Info::turn]);
 	}
 
-	string Solve() {
-		// 結果は Info::paths に格納され、文字列化したものを返す
-		state.Step();
-		estimator.Step();
-		explorer.Step();
-		// TODO
+	inline string stringify(const Stack<Direction, 1000>& path) {
+		auto res = ""s;
+		for (const auto& d : path) res += "DRUL"[(int)d];
+		return res;
 	}
 };
 
@@ -1319,11 +1327,60 @@ namespace Info {
 	auto next_score_coef = 0.0003129370833884096;                                // 0.998 ^ (999-turn)
 	auto results = Stack<double, 1000>();                                        // 実際の所要時間
 	auto paths = Stack<Stack<Direction, 1000>, 1000>();                          // 過去に出力したパス
-	auto n_tried = Graph<int>(0);                                                // その辺を何回通ったか  // TODO: 更新
-	auto horizontal_edge_to_turns = array<array<Stack<short, 1000>, 30>, 29>();  // 辺を入れると、その辺を通ったターンを返してくれる  // TODO: 更新
-	auto vertical_edge_to_turns = array<array<Stack<short, 1000>, 30>, 29>();    // 辺を入れると、その辺を通ったターンを返してくれる  // TODO: 更新
-	auto horizontal_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();  // 道を入れると、その辺を通ったターンと通った辺を返してくれる  // TODO: 更新
-	auto vertical_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();    // 道を入れると、その辺を通ったターンと通った辺を返してくれる  // TODO: 更新
+	auto n_tried = Graph<int>(0);                                                // その辺を何回通ったか
+	auto horizontal_edge_to_turns = array<array<Stack<short, 1000>, 30>, 29>();  // 辺を入れると、その辺を通ったターンを返してくれる
+	auto vertical_edge_to_turns = array<array<Stack<short, 1000>, 30>, 29>();    // 辺を入れると、その辺を通ったターンを返してくれる
+	auto horizontal_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();  // 道を入れると、その辺を通ったターンと通った辺を返してくれる
+	auto vertical_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();    // 道を入れると、その辺を通ったターンと通った辺を返してくれる
+
+	void UpdateInfo() {
+		// horizontal_edge_to_turns とかの更新
+		// 最初以外のターン開始時に呼ばれる
+		// State::Step と一緒にしないのはちょっと非効率かもだけど多分大丈夫
+
+		const auto& path = paths[turn - 1];
+		auto p = input.S[turn - 1];
+		auto visited_vertical_edges = unordered_map<signed char, unsigned int>();
+		auto visited_horizontal_edges = unordered_map<signed char, unsigned int>();
+		for (const auto& d : path) {
+			switch (d) {
+			case Direction::D:
+				n_tried.vertical_edges[p.y][p.x]++;
+				vertical_edge_to_turns[p.y][p.x].push(turn - 1);
+				visited_vertical_edges[(signed char)p.x] |= 1u << p.y;
+				p.y++;
+				break;
+			case Direction::R:
+				n_tried.horizontal_edges[p.y][p.x]++;
+				horizontal_edge_to_turns[p.y][p.x].push(turn - 1);
+				visited_horizontal_edges[(signed char)p.y] |= 1u << p.x;
+				p.x++;
+				break;
+			case Direction::U:
+				p.y--;
+				n_tried.vertical_edges[p.y][p.x]++;
+				vertical_edge_to_turns[p.y][p.x].push(turn - 1);
+				visited_vertical_edges[(signed char)p.x] |= 1u << p.y;
+				break;
+			case Direction::L:
+				p.x--;
+				n_tried.horizontal_edges[p.y][p.x]++;
+				horizontal_edge_to_turns[p.y][p.x].push(turn - 1);
+				visited_horizontal_edges[(signed char)p.y] |= 1u << p.x;
+				break;
+			}
+		}
+		for (const auto& x_ys : visited_vertical_edges) {
+			const auto& x = x_ys.first;
+			const auto& ys = x_ys.second;
+			vertical_road_to_turns[x].emplace((short)turn, ys);
+		}
+		for (const auto& y_xs : visited_horizontal_edges) {
+			const auto& y = y_xs.first;
+			const auto& xs = y_xs.second;
+			horizontal_road_to_turns[y].emplace((short)turn, xs);
+		}
+	}
 }
 
 int main(){
@@ -1337,6 +1394,7 @@ int main(){
         if(LOCAL_TEST){
             local_tester.ReadAE();
         }
+		if (k != 0) Info::UpdateInfo();
         auto path = solver.Solve();
         cout << path << endl;
         if(LOCAL_TEST){
