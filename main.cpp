@@ -694,7 +694,39 @@ namespace radix_heap {
 //  annealing
 // ---------------------------------------------------------
 
-// 焼きなまし（最小化）
+// 山登り (最小化)
+template<class State> struct HillClimbing {
+	State* state;  // score, Update(const double&), Undo(), operator=(State&) の実装が必要。operator= が必要なので、State のメンバにはポインタを置かないほうが楽
+
+	inline HillClimbing(State& arg_state) : state(&arg_state) {}
+
+	// 呼ばれる前の state は正常 (スコアが正しいなど) である必要がある
+	void optimize(const double time_limit) {
+		const double t0 = time();
+		double old_score = state->score;
+		int iteration = 0;
+		while (true) {
+			iteration++;
+			const double t = time() - t0;
+			if (t > time_limit) break;
+			const double progress_rate = t / time_limit;
+
+			state->Update(progress_rate);
+			const double new_score = state->score;
+			if (chmin(old_score, new_score)) {
+				// 遷移する
+				//cout << "improved! new_score=" << new_score << " progress=" << progress_rate << endl;
+				old_score = new_score;
+			}
+			else {
+				// 遷移しない (戻す)
+				state->Undo();
+			}
+		}
+	}
+};
+
+// 焼きなまし (最小化)
 template<class State> struct SimulatedAnnealing {
 	State* state;  // score, Update(const double&), Undo(), operator=(State&) の実装が必要。operator= が必要なので、State のメンバにはポインタを置かないほうが楽
 	Random* rng;
@@ -1159,12 +1191,14 @@ struct State {
 
 struct Estimator {
 	State* state;
-	SimulatedAnnealing<State> annealing;
-	Estimator(State& arg_state) : state(&arg_state), annealing(arg_state, rng) {}
+	//SimulatedAnnealing<State> annealing;
+	HillClimbing<State> hill_climbing;
+	Estimator(State& arg_state) : state(&arg_state), /*annealing(arg_state, rng)*/ hill_climbing(arg_state) {}
 	void Step() {
 		if (Info::turn % 10 == 5) {
 			const auto end_time = 1.9 * (double)Info::turn / 1000.0 + Info::t0;
-			annealing.optimize<Schedule>(end_time - time());
+			//annealing.optimize<Schedule>(end_time - time());
+			hill_climbing.optimize(end_time - time());
 		}
 	}
 	static double Schedule(const double& r) {
