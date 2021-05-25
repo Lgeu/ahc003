@@ -868,6 +868,7 @@ struct Graph{
 auto rng = Random(42);
 auto input = Input();
 namespace Info {
+	constexpr auto TIME_LIMIT = 2.0;
 	auto t0 = time();
 	auto turn = 0;                                                               // 0-999
 	auto next_score_coef = 0.0003129370833884096;                                // 0.998 ^ (999-turn)
@@ -1195,8 +1196,8 @@ struct Estimator {
 	HillClimbing<State> hill_climbing;
 	Estimator(State& arg_state) : state(&arg_state), /*annealing(arg_state, rng)*/ hill_climbing(arg_state) {}
 	void Step() {
-		if (Info::turn % 10 == 5) {
-			const auto end_time = 1.9 * (double)Info::turn / 1000.0 + Info::t0;
+		if (Info::turn % 10 == 5) {  // パラメータ
+			const auto end_time = (Info::TIME_LIMIT - 0.1) * (double)Info::turn / 1000.0 + Info::t0;
 			//annealing.optimize<Schedule>(end_time - time());
 			hill_climbing.optimize(end_time - time());
 		}
