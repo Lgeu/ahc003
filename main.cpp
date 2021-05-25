@@ -377,21 +377,40 @@ template<typename T> inline int search_sorted(const vector<T>& vec, const T& a) 
 }
 
 // popcount  // SSE 4.2 を使うべき
-inline unsigned int popcount(const unsigned int& v) {
+inline int popcount(const unsigned int& x) {
 #ifdef _MSC_VER
-	return __popcnt(v);
+	return (int)__popcnt(x);
 #else
-	return __builtin_popcount(v);
+	return __builtin_popcount(x);
 #endif
 }
-inline unsigned long long popcount(const unsigned long long& v) {
+inline int popcount(const unsigned long long& x) {
 #ifdef _MSC_VER
-	return __popcnt64(v);
+	return (int)__popcnt64(x);
 #else
-	return __builtin_popcountll(v);
+	return __builtin_popcountll(x);
 #endif
 }
 
+// x >> n & 1 が 1 になる最小の n ( x==0 は未定義 )
+inline int CountRightZero(const unsigned int& x) {
+#ifdef _MSC_VER
+	unsigned long r;
+	_BitScanForward(&r, x);
+	return (int)r;
+#else
+	return __builtin_ctz(x);
+#endif
+}
+inline int CountRightZero(const unsigned long long& x) {
+#ifdef _MSC_VER
+	unsigned long r;
+	_BitScanForward64(&r, x);
+	return (int)r;
+#else
+	return __builtin_ctzll(x);
+#endif
+}
 
 #ifdef _MSC_VER
 inline unsigned int __builtin_clz(const unsigned int& x) { unsigned long r; _BitScanReverse(&r, x); return 31 - r; }
@@ -699,31 +718,24 @@ namespace radix_heap {
 
 // 山登り (最小化)
 template<class State> struct HillClimbing {
-	State* state;  // score, Update(const double&), Undo(), operator=(State&) の実装が必要。operator= が必要なので、State のメンバにはポインタを置かないほうが楽
+	State* state;  // score, next_score, GetCandidate(const double&), Do(), operator=(State&) の実装が必要。operator= が必要なので、State のメンバにはポインタを置かないほうが楽
 
 	inline HillClimbing(State& arg_state) : state(&arg_state) {}
 
 	// 呼ばれる前の state は正常 (スコアが正しいなど) である必要がある
 	void optimize(const double time_limit) {
 		const double t0 = time();
-		double old_score = state->score;
 		int iteration = 0;
 		while (true) {
 			iteration++;
 			const double t = time() - t0;
 			if (t > time_limit) break;
 			const double progress_rate = t / time_limit;
-
-			state->Update(progress_rate);
-			const double new_score = state->score;
-			if (chmin(old_score, new_score)) {
-				// 遷移する
+			state->GetCandidate(progress_rate);
+			if (state->next_score < state->score) {
+				// 改善していたら遷移する
+				state->Do();
 				//cout << "improved! new_score=" << new_score << " progress=" << progress_rate << endl;
-				old_score = new_score;
-			}
-			else {
-				// 遷移しない (戻す)
-				state->Undo();
 			}
 		}
 	}
@@ -914,10 +926,160 @@ struct DancingLinks {
 		data[y][node.l].r = x;
 		data[y][node.r].l = x;
 	}
-
-
 };
 
+
+struct State {
+	// ターン毎に a を増加するように強制するのもありかも？いやどうかな…
+	struct Sigmoid {
+		double a, left, right, center;
+		Sigmoid() : a(0.2), left(5000.0), right(5000.0), center(14.0) {}  // 辺は 29 本なので (0+28)/2=14
+		double f(const double& x) const {
+			return sigmoid(a, center + x) * (right - left) + left;
+		}
+	};
+
+	array<Sigmoid, 30> H, V;
+	Stack<double, 999> estimated_path_distances;  // 各ターンの推定距離
+	double score;
+
+	// Do に必要な情報
+	int next_road;
+	Sigmoid next_value;
+	double next_score;
+
+	// Undo に必要な情報
+	/*
+	Sigmoid* last_changed;
+	Sigmoid last_value;
+	double last_score;
+	*/
+
+	State() : H(), V(), score(0.0),
+		next_road(), next_value(), next_score()
+		//last_changed(), last_value(), last_score()
+	{
+		ASSERT(H[0].left == 5000.0, "not initialized!");
+	}
+
+	void Step() {
+		ASSERT_RANGE(Info::turn, 1, 1000);
+		const auto& path = Info::paths[Info::turn - 1];
+		const auto& observed_distance = Info::results[Info::turn - 1];
+		auto estimated_distance = 0.0;
+		auto p = input.S[Info::turn - 1];
+		for (const auto& d : path) {
+			switch (d) {
+			case Direction::D:
+				estimated_distance += GetCost(false, p);
+				p.y++;
+				break;
+			case Direction::R:
+				estimated_distance += GetCost(true, p);
+				p.x++;
+				break;
+			case Direction::U:
+				p.y--;
+				estimated_distance += GetCost(false, p);
+				break;
+			case Direction::L:
+				p.x--;
+				estimated_distance += GetCost(true, p);
+				break;
+			}
+		}
+		const auto estimated_e = observed_distance / estimated_distance;
+		score += (estimated_e - 1.0) * (estimated_e - 1.0);  // これ、2 乗じゃなくて 4 乗とかにしたほうが近似としては良さそう
+		estimated_path_distances.push(estimated_distance);
+	}
+
+	void GetCandidate(const double& progress_rate) {
+		// TODO: 使ったこと無い道ならやめる
+		//last_score = score;
+		next_score = score;
+		next_road = rng.randint(60);
+		const auto next_ptr = next_road >= 30 ? &H[next_road - 30] : &V[next_road];
+		//last_value = *last_changed;
+		next_value = *next_ptr;
+		const auto r = rng.randint(4);
+		switch (r) {
+		case 0:  // a
+			next_value.a *= exp((rng.random() - 0.5) * 2.0);
+			break;
+		case 1:  // center
+			next_value.center = clipped(next_value.center + (rng.random() - 0.5) * 2000.0, 0.5, 27.5);
+			break;
+		case 2:  // left
+			next_value.left = clipped(next_value.left + (rng.random() - 0.5) * 2000.0, 1100.0, 8900.0);
+			break;
+		case 3:  // right
+			next_value.right = clipped(next_value.right + (rng.random() - 0.5) * 2000.0, 1100.0, 8900.0);
+			break;
+		}
+		if (rng.random() < 0.05) {
+			// 低確率で左右反転
+			swap(next_value.left, next_value.right);
+			next_value.center = 28.0 - next_value.center;
+		}
+		
+		// スコア差分計算
+		array<double, 29> differences;  // 距離の差
+		for (auto i = 0; i < 29; i++) differences[i] = next_value.f((double)i) - next_ptr->f((double)i);
+		const auto& turn_patterns = next_road >= 30 ? Info::horizontal_road_to_turns[next_road - 30] : Info::vertical_road_to_turns[next_road];
+		for (const auto& turn_pattern : turn_patterns) {
+			const auto& turn = turn_pattern.first;
+			auto pattern = turn_pattern.second;
+			auto estimated_path_distance = estimated_path_distances[turn];
+			do {
+				ASSERT(pattern != 0u, "??");
+				const auto idx = CountRightZero(pattern);
+				estimated_path_distance += differences[idx];
+				pattern ^= 1 << idx;
+			} while (pattern);
+			next_score += (estimated_path_distance - 1.0) * (estimated_path_distance - 1.0)
+				- (estimated_path_distances[turn] - 1.0) * (estimated_path_distances[turn] - 1.0);
+		}
+		
+
+	}
+	inline void Do() {
+		const auto next_ptr = next_road >= 30 ? &H[next_road - 30] : &V[next_road];
+
+		// estimated_path_distances の更新
+		array<double, 29> differences;  // 距離の差
+		for (auto i = 0; i < 29; i++) differences[i] = next_value.f((double)i) - next_ptr->f((double)i);
+		const auto& turn_patterns = next_road >= 30 ? Info::horizontal_road_to_turns[next_road - 30] : Info::vertical_road_to_turns[next_road];
+		for (const auto& turn_pattern : turn_patterns) {
+			const auto& turn = turn_pattern.first;
+			auto pattern = turn_pattern.second;
+			do {
+				ASSERT(pattern != 0u, "??");
+				const auto idx = CountRightZero(pattern);
+				estimated_path_distances[turn] += differences[idx];
+				pattern ^= 1 << idx;
+			} while (pattern);
+		}
+
+		// H, V の更新
+		*next_ptr = next_value;
+
+		// score の更新
+		score = next_score;
+	}
+
+	inline double GetCost(const bool& horizonatal_edge, const Vec2<int>& p) const {
+		return horizonatal_edge ? H[p.y].f((double)p.x) : V[p.x].f((double)p.y);
+	}
+
+	State& operator=(const State& rhs) {
+		H = rhs.H;
+		V = rhs.V;
+		score = rhs.score;
+		return *this;
+	}
+};
+
+/*
 struct State {
 	Graph<double> graph;                       // 各辺の予測値
 	//double D;                                  // ばらつき [100, 2000]  // D = sqrt(sum_delta / (n-1)) とかなので、必要ない
@@ -1131,27 +1293,6 @@ struct State {
 		auto negative_log_likelihood_by_delta = 0.0;  // 負の対数尤度のうち、δ と γ による寄与
 		auto negative_log_likilihood_by_e = 0.0;      // 負の対数尤度のうち、e による寄与
 
-		// δ
-		/*
-		for (auto y = 0; y < 30; y++) {
-			for (auto x = 0; x < 29; x++) {
-				const auto estimated_edge_cost = graph.horizontal_edges[y][x];
-				const auto estimated_base_edge_cost = H[y][(int)(x >= xs_h[y])];
-				const auto delta = estimated_edge_cost - estimated_base_edge_cost;
-				negative_log_likelihood_by_delta += delta * delta;
-			}
-		}
-		for (auto x = 0; x < 30; x++) {
-			for (auto y = 0; y < 29; y++) {
-				const auto estimated_edge_cost = graph.vertical_edges[y][x];
-				const auto estimated_base_edge_cost = V[x][(int)(y >= xs_v[x])];
-				const auto delta = estimated_edge_cost - estimated_base_edge_cost;
-				negative_log_likelihood_by_delta += delta * delta;
-			}
-		}
-		negative_log_likelihood_by_delta *= 1.5 / (D * D);
-		negative_log_likelihood_by_delta += 2 * 30 * 29 * log(D);
-		*/
 		negative_log_likelihood_by_delta += 2 * 30 * 29 * 0.5 * log(sum_delta);
 
 		// e
@@ -1192,6 +1333,7 @@ struct State {
 		return sqrt(sum_delta / (double)(2 * 30 * 29 - 1));
 	}
 };
+*/
 
 struct Estimator {
 	State* state;
