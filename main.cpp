@@ -167,6 +167,9 @@ template<typename T> struct Vec2 {
 	inline double l2_norm_square() const {
 		return x * x + y * y;
 	}
+	inline T l1_norm() const {
+		return std::abs(x) + std::abs(y);
+	}
 	inline double abs() const {
 		return l2_norm();
 	}
@@ -1427,35 +1430,219 @@ namespace Info {
 }
 
 
-
-int main(){
+void Solve() {
 	static auto local_tester = LocalTester();
 	static auto solver = Solver();
-    if(LOCAL_TEST){
+	if (LOCAL_TEST) {
 		local_tester.ReadHV();
-    }
-    auto prev_result = 0;
-    auto score = 0.0;
-    for(int k=0; k<1000; k++){
-        input.ReadST();
-        if(LOCAL_TEST){
-            local_tester.ReadAE();
-        }
+	}
+	auto prev_result = 0;
+	auto score = 0.0;
+	for (int k = 0; k < 1000; k++) {
+		input.ReadST();
+		if (LOCAL_TEST) {
+			local_tester.ReadAE();
+		}
 		if (k != 0) Info::UpdateInfo();
-        auto path = solver.Solve();
-        cout << path << endl;
-        if(LOCAL_TEST){
-            auto b = local_tester.ComputePathLength(path);
-            score = score * 0.998 + (double)local_tester.A.back() / (double)b;
-            prev_result = (int)(b * local_tester.E.back() + 0.5);
-        }else{
-            cin >> prev_result;
-        }
+		auto path = solver.Solve();
+		cout << path << endl;
+		if (LOCAL_TEST) {
+			auto b = local_tester.ComputePathLength(path);
+			score = score * 0.998 + (double)local_tester.A.back() / (double)b;
+			prev_result = (int)(b * local_tester.E.back() + 0.5);
+		}
+		else {
+			cin >> prev_result;
+		}
 		Info::results.push(prev_result);
 		Info::next_score_coef /= 0.998;
 		Info::turn++;
-    }
-    if(LOCAL_TEST){
-        cout << (int)(2312311.0 * score + 0.5) << endl;
-    }
+	}
+	if (LOCAL_TEST) {
+		cout << (int)(2312311.0 * score + 0.5) << endl;
+	}
+}
+
+
+// 内部の H, V が完全にわかったとした場合、スコアはどうなるか？
+namespace Experiment {
+	auto D = -1;
+	auto M = 2;
+	auto H = array<array<int, 2>, 30>();
+	auto x = array<array<int, 3>, 30>();
+	auto h = array<array<int, 29>, 30>();
+	auto V = array<array<int, 2>, 30>();
+	auto y = array<array<int, 3>, 30>();
+	auto v = array<array<int, 30>, 29>();
+	array<array<int, 30>, 30> distances;
+	array<array<Direction, 30>, 30> from;
+
+	int get_cost(const bool& horizontal, const Vec2<int>& p) {
+		return horizontal ? h[p.y][p.x] : v[p.y][p.x];
+	}
+	int get_rough_cost(const bool& horizontal, const Vec2<int>& p) {
+		return horizontal ? H[p.y][p.x >= x[p.y][1]] : V[p.x][p.y >= y[p.x][1]];
+	}
+	template<int (*get_cost)(const bool&, const Vec2<int>&)>
+	Stack<Direction, 100> Dijkstra(const Vec2<int>& start, const Vec2<int>& goal) {
+		constexpr auto inf = numeric_limits<int>::max();
+		fill(&distances[0][0], &distances[0][0] + sizeof(distances) / sizeof(decltype(inf)), inf);
+
+		distances[start.y][start.x] = 0.0;
+
+		auto q = radix_heap::pair_radix_heap<int, Vec2<int>>();
+		q.push(0.0, start);
+
+		while (true) {
+			auto dist_v = q.top_key();
+			auto v = q.top_value();
+			q.pop();
+			if (dist_v != distances[v.y][v.x]) continue;
+			if (v == goal) break;
+			
+			// D
+			if (v.y != 29) {
+				const auto u = Vec2<int>{ v.y + 1, v.x };
+				const auto& cost = get_cost(false, v);
+				auto dist_u = dist_v + cost;
+				if (dist_u < distances[u.y][u.x]) {
+					distances[u.y][u.x] = dist_u;
+					from[u.y][u.x] = Direction::D;
+					q.push(dist_u, u);
+				}
+			}
+			// R
+			if (v.x != 29) {
+				const auto u = Vec2<int>{ v.y, v.x + 1 };
+				const auto& cost = get_cost(true, v);
+				auto dist_u = dist_v + cost;
+				if (dist_u < distances[u.y][u.x]) {
+					distances[u.y][u.x] = dist_u;
+					from[u.y][u.x] = Direction::R;
+					q.push(dist_u, u);
+				}
+			}
+			// U
+			if (v.y != 0) {
+				const auto u = Vec2<int>{ v.y - 1, v.x };
+				const auto& cost = get_cost(false, u);
+				auto dist_u = dist_v + cost;
+				if (dist_u < distances[u.y][u.x]) {
+					distances[u.y][u.x] = dist_u;
+					from[u.y][u.x] = Direction::U;
+					q.push(dist_u, u);
+				}
+			}
+			// L
+			if (v.x != 0) {
+				const auto u = Vec2<int>{ v.y, v.x - 1 };
+				const auto& cost = get_cost(true, u);
+				auto dist_u = dist_v + cost;
+				if (dist_u < distances[u.y][u.x]) {
+					distances[u.y][u.x] = dist_u;
+					from[u.y][u.x] = Direction::L;
+					q.push(dist_u, u);
+				}
+			}
+		}
+
+		auto res = Stack<Direction, 100>();
+		auto p = goal;
+		while (p != start) {
+			const auto& d = from[p.y][p.x];
+			res.push(d);
+			p -= Dyx[(int)d];
+		}
+		reverse(res.begin(), res.end());
+		return res;
+	}
+
+	template<int (*get_cost)(const bool&, const Vec2<int>&)>
+	int CalculatePathDistance(const Stack<Direction, 100>& path, const Vec2<int>& start) {
+		auto res = 0;
+		auto p = start;
+		for (const auto& d : path) {
+			switch (d) {
+			case Direction::D:
+				res += get_cost(false, p);
+				p.y += 1;
+				break;
+			case Direction::R:
+				res += get_cost(true, p);
+				p.x += 1;
+				break;
+			case Direction::U:
+				p.y -= 1;
+				res += get_cost(false, p);
+				break;
+			case Direction::L:
+				p.x -= 1;
+				res += get_cost(true, p);
+				break;
+			}
+		}
+		return res;
+	}
+
+	void Generate() {
+		D = rng.randint(100, 2001);
+		for (auto&& Hi : H) for (auto&& Hij : Hi) Hij = rng.randint(1000 + D, 9001 - D);
+		for (auto&& xi : x) {
+			xi[0] = 0;
+			xi[1] = rng.randint(1, 29);
+			xi[2] = 29;
+		}
+		for (int i = 0; i < 30; i++) {
+			for (int p = 0; p < M; p++) {
+				for (int j = x[i][p]; j < x[i][p + 1]; j++) {
+					h[i][j] = H[i][p] + rng.randint(-D, D + 1);
+				}
+			}
+		}
+		for (auto&& Vi : V) for (auto&& Vij : Vi) Vij = rng.randint(1000 + D, 9001 - D);
+		for (auto&& yi : y) {
+			yi[0] = 0;
+			yi[1] = rng.randint(1, 29);
+			yi[2] = 29;
+		}
+		for (int j = 0; j < 30; j++) {
+			for (int p = 0; p < M; p++) {
+				for (int i = y[j][p]; i < y[j][p + 1]; i++) {
+					v[i][j] = V[j][p] + rng.randint(-D, D + 1);
+				}
+			}
+		}
+	}
+	pair<Vec2<int>, Vec2<int>> GetQuery() {
+		do {
+			auto s = Vec2<int>(rng.randint(30), rng.randint(30));
+			auto t = Vec2<int>(rng.randint(30), rng.randint(30));
+			if ((s - t).l1_norm() >= 10) return make_pair(s, t);
+		} while (true);
+	}
+	void Experiment() {
+		auto sum_score = 0.0;
+		for (int i = 0; i < 100; i++) {
+			Generate();
+			auto score = 0.0;
+			for (int q = 0; q < 1000; q++) {
+				auto st = GetQuery();
+				auto a = CalculatePathDistance<get_cost>(Dijkstra<get_cost>(st.first, st.second), st.first);
+				auto b = CalculatePathDistance<get_cost>(Dijkstra<get_rough_cost>(st.first, st.second), st.first);
+				ASSERT(a <= b, "omg");
+				score += (double)a / (double)b;
+			}
+			cout << "i=" << i << " D=" << D << " score=" << score << endl;
+			sum_score += score;
+		}
+		cout << "sum_score=" << sum_score << endl;
+	}
+};
+
+
+int main(){
+	//Solve();
+	Experiment::Experiment();
+	int a;
+	while (1) cin >> a;
 }
