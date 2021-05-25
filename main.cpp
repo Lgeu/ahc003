@@ -1,4 +1,4 @@
-#include<iostream>
+﻿#include<iostream>
 #include<iomanip>
 #include<vector>
 #include<set>
@@ -389,14 +389,13 @@ inline unsigned long long popcount(const unsigned long long& v) {
 #endif
 }
 
-/*
+
 #ifdef _MSC_VER
 inline unsigned int __builtin_clz(const unsigned int& x) { unsigned long r; _BitScanReverse(&r, x); return 31 - r; }
 inline unsigned long long __builtin_clzll(const unsigned long long& x) { unsigned long r; _BitScanReverse64(&r, x); return 63 - r; }
 #endif
-*/
-
-
+#include<cassert>
+#pragma warning( disable : 4146 )
 /*
 iwi 先生の radix heap (https://github.com/iwiwi/radix-heap)
 
@@ -833,6 +832,22 @@ struct Graph{
 	}
 };
 
+auto rng = Random(42);
+auto input = Input();
+namespace Info {
+	auto t0 = time();
+	auto turn = 0;                                                               // 0-999
+	auto next_score_coef = 0.0003129370833884096;                                // 0.998 ^ (999-turn)
+	auto results = Stack<double, 1000>();                                        // 実際の所要時間
+	auto paths = Stack<Stack<Direction, 1000>, 1000>();                          // 過去に出力したパス
+	auto n_tried = Graph<int>(0);                                                // その辺を何回通ったか
+	auto horizontal_edge_to_turns = array<array<Stack<short, 1000>, 30>, 29>();  // 辺を入れると、その辺を通ったターンを返してくれる
+	auto vertical_edge_to_turns = array<array<Stack<short, 1000>, 30>, 29>();    // 辺を入れると、その辺を通ったターンを返してくれる
+	auto horizontal_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();  // 道を入れると、その辺を通ったターンと通った辺を返してくれる
+	auto vertical_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();    // 道を入れると、その辺を通ったターンと通った辺を返してくれる
+}
+
+
 struct DancingLinks {
 	// ひとつずらして持つ
 	struct Node {
@@ -874,11 +889,11 @@ struct State {
 	array<int, 30> xs_h, xs_v;                 // どこで変わるか [1, 28]
 	array<array<double, 2>, 30> H, V;          // 道の強さ基準値
 	array<double, 30> sum_deltas_h, sum_deltas_v;  // 各道路の δ^2 の和
-	Stack<double, 999> estimated_path_distances;  // 各ターンの推定距離  // TODO: 初期化
+	Stack<double, 999> estimated_path_distances;  // 各ターンの推定距離
 	double score;                              // 負の対数尤度 (最小化)
 
 
-	// Undo に必要な情報(TODO)
+	// Undo に必要な情報
 	int last_changed_r, last_changed_yx1, last_changed_yx21, last_changed_yx22, last_xs_value;
 	double last_difference, last_HV_value_0, last_HV_value_1, last_sum_deltas_value, last_score;
 
@@ -927,19 +942,25 @@ struct State {
 	}
 
 	void Update(const double& progress_rate) {
-		// graph の値を変化させる  // 複数個変えた方が良さそう
+		// graph の値を変化させる
 		// xs_h, xs_v, H, V, D が自動的に求まる
-		// D、収束してくれるかちょっとこわいかも
 		static constexpr auto n = 2 * 30 * 29;  // 辺の数
 
-		last_changed_r = rng.randint(2);
-		last_changed_yx1 = rng.randint(30);  // [0, 30)
+		// 辺を選ぶ
+		unsigned int target_edges;
+		do {
+			last_changed_r = rng.randint(2);
+			last_changed_yx1 = rng.randint(30);  // [0, 30)
+			const auto& turn_edges = (last_changed_r ? Info::horizontal_road_to_turns : Info::vertical_road_to_turns)[last_changed_yx1];
+			if (turn_edges.size() == 0) continue;
+			target_edges = turn_edges[rng.randint(turn_edges.size())].second;
+			ASSERT(target_edges != 0u, "ok?");
+		} while (false);
 		do {
 			last_changed_yx21 = rng.randint(1, 29);  // 区切り位置を選ぶ [1, 29)
 			last_changed_yx22 = clipped(rng.randint(-15, 45), 0, 29);  // 区切り位置を選ぶ [0, 30)
-		} while (last_changed_yx21 == last_changed_yx22);
-		if (last_changed_yx21 > last_changed_yx22) swap(last_changed_yx21, last_changed_yx22);
-		// TODO: 未探索の道路を変更しない処理
+			if (last_changed_yx21 > last_changed_yx22) swap(last_changed_yx21, last_changed_yx22);
+		} while ((target_edges & ((1u << last_changed_yx22) - (1u << last_changed_yx21))) == 0u);
 
 		last_difference = (rng.random() - 0.5) * 200.0;  // 変化量 要調整
 
@@ -1141,7 +1162,7 @@ struct Estimator {
 	void Step() {
 		if (Info::turn % 10 == 5) {
 			const auto end_time = 1.9 * (double)Info::turn / 1000.0;
-			annealing.optimize<Schedule>(end_time - time());  // TODO: 確認
+			annealing.optimize<Schedule>(end_time - time());
 		}
 	}
 	static double Schedule(const double& r) {
@@ -1157,7 +1178,7 @@ struct Explorer {
 	State* state;
 	array<array<array<double, 2>, 30>, 30> distances;
 	array<array<array<Node, 2>, 30>, 30> from;
-	Explorer(State& arg_state) : state(&arg_state) {}
+	Explorer(State& arg_state) : state(&arg_state), distances(), from() {}
 
 	// 
 	void Step() {
@@ -1264,7 +1285,6 @@ struct Explorer {
 
 
 struct Solver {
-	// TODO
 	State state;
 	Estimator estimator;
 	Explorer explorer;
@@ -1316,12 +1336,9 @@ struct LocalTester{
     }
 };
 
-auto rng = Random(42);
-auto input = Input();
-auto local_tester = LocalTester();
-auto solver = Solver();
 
 namespace Info {
+	/*
 	auto t0 = time();
 	auto turn = 0;                                                               // 0-999
 	auto next_score_coef = 0.0003129370833884096;                                // 0.998 ^ (999-turn)
@@ -1332,7 +1349,7 @@ namespace Info {
 	auto vertical_edge_to_turns = array<array<Stack<short, 1000>, 30>, 29>();    // 辺を入れると、その辺を通ったターンを返してくれる
 	auto horizontal_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();  // 道を入れると、その辺を通ったターンと通った辺を返してくれる
 	auto vertical_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();    // 道を入れると、その辺を通ったターンと通った辺を返してくれる
-
+	*/
 	void UpdateInfo() {
 		// horizontal_edge_to_turns とかの更新
 		// 最初以外のターン開始時に呼ばれる
@@ -1383,6 +1400,9 @@ namespace Info {
 	}
 }
 
+
+auto local_tester = LocalTester();
+auto solver = Solver();
 int main(){
     if(LOCAL_TEST){
 		local_tester.ReadHV();
