@@ -1381,12 +1381,12 @@ namespace Info {
 		for (const auto& x_ys : visited_vertical_edges) {
 			const auto& x = x_ys.first;
 			const auto& ys = x_ys.second;
-			vertical_road_to_turns[x].emplace((short)turn, ys);
+			vertical_road_to_turns[x].emplace((short)turn - 1, ys);
 		}
 		for (const auto& y_xs : visited_horizontal_edges) {
 			const auto& y = y_xs.first;
 			const auto& xs = y_xs.second;
-			horizontal_road_to_turns[y].emplace((short)turn, xs);
+			horizontal_road_to_turns[y].emplace((short)turn - 1, xs);
 		}
 	}
 }
