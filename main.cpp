@@ -896,39 +896,6 @@ namespace Info {
 	auto vertical_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();    // 道を入れると、その辺を通ったターンと通った辺を返してくれる
 }
 
-
-struct DancingLinks {
-	// ひとつずらして持つ
-	struct Node {
-		signed char d, r, u, l;
-		Node() : d(-2), r(-2), u(-2), l(-2) {}
-	};
-	array<array<Node, 32>, 32> data;
-	DancingLinks() = default;
-	inline void Add(int y, int x) {
-		ASSERT_RANGE(y, 0, 30);
-		ASSERT_RANGE(x, 0, 30);
-		y++;
-		x++;
-		auto& node = data[y][x];
-
-		if (node.d != -2) return;
-
-		// 上を探す
-		for (node.u = y - 1; data[node.u][x].d == -2; node.u--);
-		node.d = data[node.u][x].d;
-		data[node.u][x].d = y;
-		data[node.d][x].u = y;
-
-		// 左を探す
-		for (node.l = x - 1; data[y][node.l].d == -2; node.l--);
-		node.r = data[y][node.l].r;
-		data[y][node.l].r = x;
-		data[y][node.r].l = x;
-	}
-};
-
-
 struct State {
 	// ターン毎に a を増加するように強制するのもありかも？いやどうかな…
 	struct Sigmoid {
@@ -1036,8 +1003,12 @@ struct State {
 				estimated_path_distance += differences[idx];
 				pattern ^= 1 << idx;
 			} while (pattern);
-			next_score += (estimated_path_distance - 1.0) * (estimated_path_distance - 1.0)
-				- (estimated_path_distances[turn] - 1.0) * (estimated_path_distances[turn] - 1.0);
+
+			const auto& observed_distance = Info::results[turn];
+			const auto estimated_e = observed_distance / estimated_path_distances[turn];
+			const auto next_estimated_e = observed_distance / estimated_path_distance;
+			next_score += (next_estimated_e - 1.0) * (next_estimated_e - 1.0)
+				- (estimated_e - 1.0) * (estimated_e - 1.0);
 		}
 		
 
@@ -1341,8 +1312,9 @@ struct Estimator {
 	HillClimbing<State> hill_climbing;
 	Estimator(State& arg_state) : state(&arg_state), /*annealing(arg_state, rng)*/ hill_climbing(arg_state) {}
 	void Step() {
-		if (Info::turn % 10 == 5) {  // パラメータ
-			const auto end_time = (Info::TIME_LIMIT - 0.1) * (double)Info::turn / 1000.0 + Info::t0;
+		constexpr auto begin_turn = 100;
+		if (Info::turn >= begin_turn && Info::turn % 50 == 0) {  // パラメータ
+			const auto end_time = (Info::TIME_LIMIT - 0.1) * (double)(Info::turn - begin_turn) / (double)(1000 - begin_turn) + Info::t0;
 			//annealing.optimize<Schedule>(end_time - time());
 			hill_climbing.optimize(end_time - time());
 		}
@@ -1391,7 +1363,7 @@ struct Explorer {
 			// D
 			if (v.y != (i8)29) {
 				const auto u = Node{ v.y + (i8)1, v.x, false };
-				const auto& cost = state->graph.vertical_edges[v.y][v.x];
+				const auto& cost = state->GetCost(false, Vec2<int>{ v.y, v.x });
 				const auto& n_tried = Info::n_tried.vertical_edges[v.y][v.x];
 				auto dist_u = dist_v + max(1000.0, cost - UCB1(n_tried));
 				if (v.h != u.h) dist_u += turning_cost;
@@ -1404,7 +1376,7 @@ struct Explorer {
 			// R
 			if (v.x != (i8)29) {
 				const auto u = Node{ v.y, v.x + (i8)1, true };
-				const auto& cost = state->graph.horizontal_edges[v.y][v.x];
+				const auto& cost = state->GetCost(true, Vec2<int>{ v.y, v.x });
 				const auto& n_tried = Info::n_tried.horizontal_edges[v.y][v.x];
 				auto dist_u = dist_v + max(1000.0, cost - UCB1(n_tried));
 				if (v.h != u.h) dist_u += turning_cost;
@@ -1417,7 +1389,7 @@ struct Explorer {
 			// U
 			if (v.y != (i8)0) {
 				const auto u = Node{ v.y - (i8)1, v.x, false };
-				const auto& cost = state->graph.vertical_edges[u.y][u.x];
+				const auto& cost = state->GetCost(false, Vec2<int>{ u.y, u.x });
 				const auto& n_tried = Info::n_tried.vertical_edges[u.y][u.x];
 				auto dist_u = dist_v + max(1000.0, cost - UCB1(n_tried));
 				if (v.h != u.h) dist_u += turning_cost;
@@ -1430,7 +1402,7 @@ struct Explorer {
 			// L
 			if (v.x != (i8)0) {
 				const auto u = Node{ v.y, v.x - (i8)1, true };
-				const auto& cost = state->graph.horizontal_edges[u.y][u.x];
+				const auto& cost = state->GetCost(true, Vec2<int>{ u.y, u.x });
 				const auto& n_tried = Info::n_tried.horizontal_edges[u.y][u.x];
 				auto dist_u = dist_v + max(1000.0, cost - UCB1(n_tried));
 				if (v.h != u.h) dist_u += turning_cost;
@@ -1783,8 +1755,8 @@ namespace Experiment {
 
 
 int main(){
-	//Solve();
-	Experiment::Experiment();
+	Solve();
+	//Experiment::Experiment();
 	int a;
 	while (1) cin >> a;
 }
