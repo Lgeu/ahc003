@@ -802,7 +802,8 @@ struct Graph{
     
 	Graph() = default;
 	Graph(const T& fill_value) {
-		fill(&horizontal_edges[0][0], &horizontal_edges[0][0] + sizeof(horizontal_edges) + sizeof(vertical_edges), fill_value);
+		fill(&horizontal_edges[0][0], &horizontal_edges[0][0] + sizeof(horizontal_edges) / sizeof(fill_value), fill_value);
+		fill(&vertical_edges[0][0], &vertical_edges[0][0] + sizeof(vertical_edges) / sizeof(fill_value), fill_value);
 	}
 
 	T ComputePathLength(Vec2<int> p, const string& path) const {
@@ -904,7 +905,8 @@ struct State {
 		// xs, H, V の初期化
 		fill(xs_h.begin(), xs_h.end(), 15);
 		fill(xs_v.begin(), xs_v.end(), 15);
-		fill(&H[0][0], &H[0][0] + sizeof(H) + sizeof(V), 5000.0);
+		fill(&H[0][0], &H[0][0] + sizeof(H) / sizeof(double), 5000.0);
+		fill(&V[0][0], &V[0][0] + sizeof(V) / sizeof(double), 5000.0);
 
 		// sum_deltas_h, sum_deltas_v は 0 で初期化されるよね？
 	}
@@ -1185,7 +1187,7 @@ struct Explorer {
 		// ダイクストラで最短路を見つける
 		const auto turning_cost = Info::turn < 100 ? 1e7 : Info::turn < 300 ? 1e4 : 0.0;
 		constexpr auto inf = numeric_limits<double>::max();
-		fill(&distances[0][0][0], &distances[0][0][0] + sizeof(distances), inf);
+		fill(&distances[0][0][0], &distances[0][0][0] + sizeof(distances) / sizeof(decltype(inf)), inf);
 
 		const auto& start = input.S[Info::turn];
 		const auto& goal = input.T[Info::turn];
