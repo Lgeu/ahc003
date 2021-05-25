@@ -1163,7 +1163,7 @@ struct Estimator {
 	Estimator(State& arg_state) : state(&arg_state), annealing(arg_state, rng) {}
 	void Step() {
 		if (Info::turn % 10 == 5) {
-			const auto end_time = 1.9 * (double)Info::turn / 1000.0;
+			const auto end_time = 1.9 * (double)Info::turn / 1000.0 + Info::t0;
 			annealing.optimize<Schedule>(end_time - time());
 		}
 	}
