@@ -1263,7 +1263,7 @@ struct Explorer {
 		Info::paths.emplace();
 		auto& path = Info::paths[Info::turn];
 		auto p = goal_node;
-		while (p.y != start.x || p.x != start.x) {
+		while (p.y != start.y || p.x != start.x) {
 			const auto& frm = from[p.y][p.x][p.h];
 			if (p.y != frm.y) {
 				if (frm.y < p.y) path.push(Direction::D);
@@ -1338,18 +1338,6 @@ struct LocalTester{
 
 
 namespace Info {
-	/*
-	auto t0 = time();
-	auto turn = 0;                                                               // 0-999
-	auto next_score_coef = 0.0003129370833884096;                                // 0.998 ^ (999-turn)
-	auto results = Stack<double, 1000>();                                        // 実際の所要時間
-	auto paths = Stack<Stack<Direction, 1000>, 1000>();                          // 過去に出力したパス
-	auto n_tried = Graph<int>(0);                                                // その辺を何回通ったか
-	auto horizontal_edge_to_turns = array<array<Stack<short, 1000>, 30>, 29>();  // 辺を入れると、その辺を通ったターンを返してくれる
-	auto vertical_edge_to_turns = array<array<Stack<short, 1000>, 30>, 29>();    // 辺を入れると、その辺を通ったターンを返してくれる
-	auto horizontal_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();  // 道を入れると、その辺を通ったターンと通った辺を返してくれる
-	auto vertical_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();    // 道を入れると、その辺を通ったターンと通った辺を返してくれる
-	*/
 	void UpdateInfo() {
 		// horizontal_edge_to_turns とかの更新
 		// 最初以外のターン開始時に呼ばれる
