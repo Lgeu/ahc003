@@ -802,7 +802,8 @@ struct Graph{
     
 	Graph() = default;
 	Graph(const T& fill_value) {
-		fill(&horizontal_edges[0][0], &horizontal_edges[0][0] + sizeof(horizontal_edges) + sizeof(vertical_edges), fill_value);
+		fill(&horizontal_edges[0][0], &horizontal_edges[0][0] + sizeof(horizontal_edges) / sizeof(fill_value), fill_value);
+		fill(&vertical_edges[0][0], &vertical_edges[0][0] + sizeof(vertical_edges) / sizeof(fill_value), fill_value);
 	}
 
 	T ComputePathLength(Vec2<int> p, const string& path) const {
@@ -841,7 +842,7 @@ namespace Info {
 	auto results = Stack<double, 1000>();                                        // 実際の所要時間
 	auto paths = Stack<Stack<Direction, 1000>, 1000>();                          // 過去に出力したパス
 	auto n_tried = Graph<int>(0);                                                // その辺を何回通ったか
-	auto horizontal_edge_to_turns = array<array<Stack<short, 1000>, 30>, 29>();  // 辺を入れると、その辺を通ったターンを返してくれる
+	auto horizontal_edge_to_turns = array<array<Stack<short, 1000>, 29>, 30>();  // 辺を入れると、その辺を通ったターンを返してくれる
 	auto vertical_edge_to_turns = array<array<Stack<short, 1000>, 30>, 29>();    // 辺を入れると、その辺を通ったターンを返してくれる
 	auto horizontal_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();  // 道を入れると、その辺を通ったターンと通った辺を返してくれる
 	auto vertical_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();    // 道を入れると、その辺を通ったターンと通った辺を返してくれる
@@ -904,7 +905,8 @@ struct State {
 		// xs, H, V の初期化
 		fill(xs_h.begin(), xs_h.end(), 15);
 		fill(xs_v.begin(), xs_v.end(), 15);
-		fill(&H[0][0], &H[0][0] + sizeof(H) + sizeof(V), 5000.0);
+		fill(&H[0][0], &H[0][0] + sizeof(H) / sizeof(double), 5000.0);
+		fill(&V[0][0], &V[0][0] + sizeof(V) / sizeof(double), 5000.0);
 
 		// sum_deltas_h, sum_deltas_v は 0 で初期化されるよね？
 	}
@@ -1185,7 +1187,7 @@ struct Explorer {
 		// ダイクストラで最短路を見つける
 		const auto turning_cost = Info::turn < 100 ? 1e7 : Info::turn < 300 ? 1e4 : 0.0;
 		constexpr auto inf = numeric_limits<double>::max();
-		fill(&distances[0][0][0], &distances[0][0][0] + sizeof(distances), inf);
+		fill(&distances[0][0][0], &distances[0][0][0] + sizeof(distances) / sizeof(decltype(inf)), inf);
 
 		const auto& start = input.S[Info::turn];
 		const auto& goal = input.T[Info::turn];
@@ -1263,7 +1265,7 @@ struct Explorer {
 		Info::paths.emplace();
 		auto& path = Info::paths[Info::turn];
 		auto p = goal_node;
-		while (p.y != start.x || p.x != start.x) {
+		while (p.y != start.y || p.x != start.x) {
 			const auto& frm = from[p.y][p.x][p.h];
 			if (p.y != frm.y) {
 				if (frm.y < p.y) path.push(Direction::D);
@@ -1312,6 +1314,7 @@ struct LocalTester{
     Stack<int, 1000> A;           // 最短路長
     Stack<double, 1000> E;        // ランダマイズ係数
 	Graph<int> G;                      // 正解のコスト
+	LocalTester() = default;
     void ReadHV(){
         for(int y=0;y<30;y++){
             for(int x=0; x<29; x++){
@@ -1338,18 +1341,6 @@ struct LocalTester{
 
 
 namespace Info {
-	/*
-	auto t0 = time();
-	auto turn = 0;                                                               // 0-999
-	auto next_score_coef = 0.0003129370833884096;                                // 0.998 ^ (999-turn)
-	auto results = Stack<double, 1000>();                                        // 実際の所要時間
-	auto paths = Stack<Stack<Direction, 1000>, 1000>();                          // 過去に出力したパス
-	auto n_tried = Graph<int>(0);                                                // その辺を何回通ったか
-	auto horizontal_edge_to_turns = array<array<Stack<short, 1000>, 30>, 29>();  // 辺を入れると、その辺を通ったターンを返してくれる
-	auto vertical_edge_to_turns = array<array<Stack<short, 1000>, 30>, 29>();    // 辺を入れると、その辺を通ったターンを返してくれる
-	auto horizontal_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();  // 道を入れると、その辺を通ったターンと通った辺を返してくれる
-	auto vertical_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();    // 道を入れると、その辺を通ったターンと通った辺を返してくれる
-	*/
 	void UpdateInfo() {
 		// horizontal_edge_to_turns とかの更新
 		// 最初以外のターン開始時に呼ばれる
@@ -1401,9 +1392,10 @@ namespace Info {
 }
 
 
-auto local_tester = LocalTester();
-auto solver = Solver();
+
 int main(){
+	static auto local_tester = LocalTester();
+	static auto solver = Solver();
     if(LOCAL_TEST){
 		local_tester.ReadHV();
     }
@@ -1426,6 +1418,7 @@ int main(){
         }
 		Info::results.push(prev_result);
 		Info::next_score_coef /= 0.998;
+		Info::turn++;
     }
     if(LOCAL_TEST){
         cout << (int)(2312311.0 * score + 0.5) << endl;
