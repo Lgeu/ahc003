@@ -896,6 +896,56 @@ namespace Info {
 	auto vertical_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();    // 道を入れると、その辺を通ったターンと通った辺を返してくれる
 }
 
+
+template<int dimension>
+struct RidgeRegression {
+	// 5000.0 が基準になるように入力するように注意
+	// w = (X^T X + λI)^{-1} X^T y
+	// A := X^T X + λI
+	// b := X^T y
+	// 逆行列を陽に持つ方法、本当は良くなさそう
+
+	array<array<double, dimension>, dimension> invA;
+	array<double, dimension> b;
+	double lambda;
+
+	array<double, dimension> invAu;  // A^{-1} u
+
+	RidgeRegression(const double& arg_lambda) : invA(), b(), lambda(arg_lambda), invAu() {
+		ASSERT(inv_A[1][0] == 0.0, "not initialized!");
+		for (auto i = 0; i < dimension; i++) invA[i][i] = 1.0 / lambda;
+	}
+
+	inline void AddData(const array<double, dimension>& data_x, const double& data_y) {
+		auto denom = 1.0;
+		fill(invAu.begin(), invAu.end(), 0.0);
+		for (auto y = 0; y < dimension; y++) {
+			if (data_x[y] == 0.0) continue;
+			for (auto x = 0; x < dimension; x++) {
+				invAu[x] += invA[y][x] * data_x[y];
+			}
+			denom += data_x[y] * invAu[y];
+			b[y] += data_x[y] * data_y;
+		}
+		auto inv_denom = 1.0 / denom;
+		for (auto y = 0; y < dimension; y++) {
+			for(auto x=0; x < dimension; x++) {
+				invA[y][x] -= invAu[y] * invAu[x] * inv_denom;  // invA が対称行列なので無駄がある
+			}
+		}
+	}
+
+	// O(dimension) かかるので注意、使う側が適宜メモ化する
+	inline double GetWeight(const int& index) {
+		auto res = 0.0;
+		for (auto x = 0; x < dimension; x++) {
+			res += invA[index][x] * b[x];
+		}
+		return res;
+	}
+};
+
+
 struct State {
 	// ターン毎に a を増加するように強制するのもありかも？いやどうかな…
 	struct Sigmoid {
@@ -1305,6 +1355,66 @@ struct State {
 	}
 };
 */
+
+
+template<int bunch=5>
+struct RidgeEstimator {
+	constexpr static int bunch_per_road = (29 + bunch - 1) / bunch;
+	constexpr static int ridge_dimension = bunch_per_road * 30 * 2;
+	RidgeRegression<ridge_dimension> ridge;
+	array<double, ridge_dimension> weight_memo;  // 辺の重みのメモ (計算に O(dimension) かかるため)
+	bitset<ridge_dimension> already_memorized;   // 辺の重みを既にメモしたか。ターン毎に初期化
+
+	RidgeEstimator(const double& lambda) : ridge(lambda), weight_memo(), already_memorized() {}
+
+	inline int GetBunchIndex(const bool& horizontal, const Vec2<int>& p) const {
+		return (horizontal ? ridge_dimension / 2 : 0) + p.x * bunch_per_road + p.y / bunch;
+	}
+
+	inline void Step() {
+		ASSERT_RANGE(Info::turn, 1, 1000);
+		const auto& path = Info::paths[Info::turn - 1];
+		const auto& observed_distance = Info::results[Info::turn - 1];
+		auto estimated_distance = 0.0;
+		auto p = input.S[Info::turn - 1];
+		auto data_x = array<double, ridge_dimension>();
+		auto data_y = observed_distance - 5000.0 * (double)path.size();
+		ASSERT(data_x[0] == 0.0, "not initialized");
+		for (const auto& d : path) {
+			switch (d) {
+			case Direction::D:
+				data_x[GetBunchIndex(false, p)]++;
+				p.y++;
+				break;
+			case Direction::R:
+				data_x[GetBunchIndex(true, p)]++;
+				p.x++;
+				break;
+			case Direction::U:
+				p.y--;
+				data_x[GetBunchIndex(false, p)]++;
+				break;
+			case Direction::L:
+				p.x--;
+				data_x[GetBunchIndex(true, p)]++;
+				break;
+			}
+		}
+		ridge.AddData(data_x, data_y);
+		already_memorized.reset();
+	}
+
+	inline double GetCost(const bool& horizonatal_edge, const Vec2<int>& p) {
+		const auto bunch_index = GetBunchIndex(horizonatal_edge, p);
+		if (already_memorized[bunch_index]) {
+			return weight_memo[bunch_index];
+		}
+		else {
+			already_memorized[bunch_index] = true;
+			return weight_memo[bunch_index] = ridge.GetWeight(bunch_index);
+		}
+	}
+};
 
 struct Estimator {
 	State* state;
