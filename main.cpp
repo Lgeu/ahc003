@@ -38,7 +38,13 @@
 
 // ========================== parameters ==========================
 
-constexpr int BUNCH = 5;  //
+// ridge regression
+constexpr int BUNCH = 29;  //
+constexpr double LAMBDA = 10.0;
+
+// explorer  // turning_cost もある
+constexpr double UCB1_COEF = 100.0;
+
 
 
 // ========================== macroes ==========================
@@ -913,7 +919,6 @@ namespace Info {
 
 template<int dimension>
 struct RidgeRegression {
-	// 5000.0 が基準になるように入力するように注意
 	// w = (X^T X + λI)^{-1} X^T y
 	// A := X^T X + λI
 	// b := X^T y
@@ -1579,7 +1584,7 @@ struct Explorer {
 
 	inline double UCB1(const int& n) {
 		// log は無視
-		return 10000.0 / sqrt(n + 1) * (1.0 - Info::next_score_coef);
+		return UCB1_COEF / sqrt(n + 1) * (1.0 - Info::next_score_coef);
 	}
 };
 
@@ -1590,7 +1595,7 @@ struct Solver {
 	RidgeEstimator<BUNCH> estimator;
 	Explorer explorer;
 
-	Solver() : estimator(10.0), explorer(estimator) {}
+	Solver() : estimator(LAMBDA), explorer(estimator) {}
 
 	inline string Solve() {
 		// 結果は Info::paths に格納され、文字列化したものを返す
