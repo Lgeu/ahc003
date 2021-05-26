@@ -1368,7 +1368,8 @@ struct RidgeEstimator {
 	RidgeEstimator(const double& lambda) : ridge(lambda), weight_memo(), already_memorized() {}
 
 	inline int GetBunchIndex(const bool& horizontal, const Vec2<int>& p) const {
-		return (horizontal ? ridge_dimension / 2 : 0) + p.x * bunch_per_road + p.y / bunch;
+		return horizontal ? ridge_dimension / 2 + p.y * bunch_per_road + p.x / bunch
+			              : p.x * bunch_per_road + p.y / bunch;
 	}
 
 	inline void Step() {
@@ -1411,16 +1412,36 @@ struct RidgeEstimator {
 		}
 		else {
 			already_memorized[bunch_index] = true;
-			return weight_memo[bunch_index] = ridge.GetWeight(bunch_index);
+			return weight_memo[bunch_index] = ridge.GetWeight(bunch_index) + 5000.0;
 		}
+	}
+
+	void Print() {
+		for (auto y = 0; y < 30; y++) {
+			for (auto x = 0; x < 29; x++) {
+				cout << (int)GetCost(true, { y, x }) << " ";
+			}
+			cout << endl;
+		}
+		for (auto y = 0; y < 29; y++) {
+			for (auto x = 0; x < 30; x++) {
+				cout << (int)GetCost(false, { y, x }) << " ";
+			}
+			cout << endl;
+		}
+
 	}
 };
 
+/*
 struct Estimator {
 	State* state;
 	//SimulatedAnnealing<State> annealing;
 	HillClimbing<State> hill_climbing;
-	Estimator(State& arg_state) : state(&arg_state), /*annealing(arg_state, rng)*/ hill_climbing(arg_state) {}
+	Estimator(State& arg_state) : state(&arg_state), 
+	//annealing(arg_state, rng)
+	hill_climbing(arg_state)
+	{}
 	void Step() {
 		constexpr auto begin_turn = 50;
 		if (Info::turn >= begin_turn && Info::turn % 10 == 0) {  // パラメータ
@@ -1433,16 +1454,17 @@ struct Estimator {
 		return 1e-9;  // 山登り
 	}
 };
+*/
 
 struct Explorer {
 	struct Node {
 		signed char y, x;
 		bool h;
 	};
-	State* state;
+	RidgeEstimator<29>* state;
 	array<array<array<double, 2>, 30>, 30> distances;
 	array<array<array<Node, 2>, 30>, 30> from;
-	Explorer(State& arg_state) : state(&arg_state), distances(), from() {}
+	Explorer(RidgeEstimator<29>& arg_state) : state(&arg_state), distances(), from() {}
 
 	// 
 	void Step() {
@@ -1549,16 +1571,17 @@ struct Explorer {
 
 
 struct Solver {
-	State state;
-	Estimator estimator;
+	//State state;
+	//Estimator estimator;
+	RidgeEstimator<29> estimator;
 	Explorer explorer;
 
-	Solver() : state(), estimator(state), explorer(state) {}
+	Solver() : estimator(10.0), explorer(estimator) {}
 
 	inline string Solve() {
 		// 結果は Info::paths に格納され、文字列化したものを返す
 		if (Info::turn != 0) {
-			state.Step();
+			//state.Step();
 			estimator.Step();
 		}
 		explorer.Step();
@@ -1684,6 +1707,7 @@ void Solve() {
 	}
 	if (LOCAL_TEST) {
 		cout << (int)(2312311.0 * score + 0.5) << endl;
+		//solver.estimator.Print();
 	}
 }
 
