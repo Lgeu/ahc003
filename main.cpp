@@ -35,6 +35,12 @@
 #pragma GCC optimize("unroll-loops")
 #endif
 
+
+// ========================== parameters ==========================
+
+constexpr int BUNCH = 5;  //
+
+
 // ========================== macroes ==========================
 
 #define rep(i,n) for(ll (i)=0; (i)<(n); (i)++)
@@ -1469,10 +1475,10 @@ struct Explorer {
 		signed char y, x;
 		bool h;
 	};
-	RidgeEstimator<29>* state;
+	RidgeEstimator<BUNCH>* state;
 	array<array<array<double, 2>, 30>, 30> distances;
 	array<array<array<Node, 2>, 30>, 30> from;
-	Explorer(RidgeEstimator<29>& arg_state) : state(&arg_state), distances(), from() {}
+	Explorer(RidgeEstimator<BUNCH>& arg_state) : state(&arg_state), distances(), from() {}
 
 	// 
 	void Step() {
@@ -1581,7 +1587,7 @@ struct Explorer {
 struct Solver {
 	//State state;
 	//Estimator estimator;
-	RidgeEstimator<29> estimator;
+	RidgeEstimator<BUNCH> estimator;
 	Explorer explorer;
 
 	Solver() : estimator(10.0), explorer(estimator) {}
@@ -1899,6 +1905,8 @@ namespace Experiment {
 int main(){
 	Solve();
 	//Experiment::Experiment();
+#ifdef _MSC_VER
 	int a;
 	while (1) cin >> a;
+#endif
 }
