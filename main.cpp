@@ -26,6 +26,14 @@
 #include<intrin0.h>
 #endif
 
+#ifdef __GNUC__
+#pragma GCC target("avx2")
+#pragma GCC target("sse4")
+//#pragma GCC target("sse,sse2,sse3,ssse3,sse4,popcnt,abm,mmx,avx,tune=native")
+#pragma GCC optimize("O3")
+//#pragma GCC optimize("Ofast")
+#pragma GCC optimize("unroll-loops")
+#endif
 
 // ========================== macroes ==========================
 
@@ -912,7 +920,7 @@ struct RidgeRegression {
 	array<double, dimension> invAu;  // A^{-1} u
 
 	RidgeRegression(const double& arg_lambda) : invA(), b(), lambda(arg_lambda), invAu() {
-		ASSERT(inv_A[1][0] == 0.0, "not initialized!");
+		ASSERT(invA[1][0] == 0.0, "not initialized!");
 		for (auto i = 0; i < dimension; i++) invA[i][i] = 1.0 / lambda;
 	}
 
