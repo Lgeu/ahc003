@@ -974,13 +974,13 @@ struct State {
 			next_value.a *= exp((rng.random() - 0.5) * 2.0);
 			break;
 		case 1:  // center
-			next_value.center = clipped(next_value.center + (rng.random() - 0.5) * 2000.0, 0.5, 27.5);
+			next_value.center = clipped(next_value.center + (rng.random() - 0.5) * 10.0, 0.5, 27.5);
 			break;
 		case 2:  // left
-			next_value.left = clipped(next_value.left + (rng.random() - 0.5) * 2000.0, 1100.0, 8900.0);
+			next_value.left = clipped(next_value.left + (rng.random() - 0.5) * 500.0, 1100.0, 8900.0);
 			break;
 		case 3:  // right
-			next_value.right = clipped(next_value.right + (rng.random() - 0.5) * 2000.0, 1100.0, 8900.0);
+			next_value.right = clipped(next_value.right + (rng.random() - 0.5) * 500.0, 1100.0, 8900.0);
 			break;
 		}
 		if (rng.random() < 0.05) {
@@ -1312,8 +1312,8 @@ struct Estimator {
 	HillClimbing<State> hill_climbing;
 	Estimator(State& arg_state) : state(&arg_state), /*annealing(arg_state, rng)*/ hill_climbing(arg_state) {}
 	void Step() {
-		constexpr auto begin_turn = 100;
-		if (Info::turn >= begin_turn && Info::turn % 50 == 0) {  // パラメータ
+		constexpr auto begin_turn = 50;
+		if (Info::turn >= begin_turn && Info::turn % 10 == 0) {  // パラメータ
 			const auto end_time = (Info::TIME_LIMIT - 0.1) * (double)(Info::turn - begin_turn) / (double)(1000 - begin_turn) + Info::t0;
 			//annealing.optimize<Schedule>(end_time - time());
 			hill_climbing.optimize(end_time - time());
