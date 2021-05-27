@@ -42,6 +42,8 @@
 constexpr int BUNCH = 29;  //
 constexpr double LAMBDA = 10.0;
 
+constexpr double LASSO_LAMBDA = 1e4;
+
 // explorer  // turning_cost もある
 constexpr double UCB1_COEF = 100.0;
 
@@ -986,6 +988,7 @@ struct LassoRegression {
 	// O(X の非 0 要素数)
 	inline void Iterate() {  // TODO : 枝刈り
 		for (auto j = 0; j < dimension; j++) {  // 各座標方向に対して最適化
+			if (squared_norm[j] == 0.0) continue;
 			auto rho = 0.0;  // 最小二乗解
 			const auto& old_weight = weights[j];
 			for (const auto& i : nonzero_indexes[j]) {
@@ -1616,21 +1619,20 @@ struct UltimateEstimator {
 			ASSERT_RANGE(p.y, 0, 30);
 			ASSERT_RANGE(p.x, 1, 29);
 			if (right) {
-
-				return lasso_dimension / 2 + (p.y * 2 + 1) * 28 * 2 + p.x - 1;
+				return lasso_dimension / 2 + (p.y * 2 + 1) * 28 + p.x - 1;
 			}
 			else {
-				return lasso_dimension / 2 + (p.y * 2) * 28 * 2 + p.x - 1;
+				return lasso_dimension / 2 + (p.y * 2) * 28 + p.x - 1;
 			}
 		}
 		else {
 			ASSERT_RANGE(p.x, 0, 30);
 			ASSERT_RANGE(p.y, 1, 29);
 			if (right) {
-				return (p.x * 2 + 1) * 28 * 2 + p.y - 1;
+				return (p.x * 2 + 1) * 28 + p.y - 1;
 			}
 			else {
-				return (p.x * 2) * 28 * 2 + p.y - 1;
+				return (p.x * 2) * 28 + p.y - 1;
 			}
 		}
 	}
@@ -1663,14 +1665,14 @@ struct UltimateEstimator {
 			case Direction::D:
 				data_x[GetRidgeIndex(false, p)]++;
 				for (auto i = 1; i <= 28; i++) {
-					data_x[GetLassoIndex(false, { i, p.x }, i <= p.y)]++;  // めちゃくちゃバグがあっても気が付かなさそうでこわい
+					lasso_data_x[GetLassoIndex(false, { i, p.x }, i <= p.y)]++;  // めちゃくちゃバグがあっても気が付かなさそうでこわい
 				}
 				p.y++;
 				break;
 			case Direction::R:
 				data_x[GetRidgeIndex(true, p)]++;
 				for (auto i = 1; i <= 28; i++) {
-					data_x[GetLassoIndex(true, { p.y, i }, i <= p.x)]++;
+					lasso_data_x[GetLassoIndex(true, { p.y, i }, i <= p.x)]++;
 				}
 				p.x++;
 				break;
@@ -1678,14 +1680,14 @@ struct UltimateEstimator {
 				p.y--;
 				data_x[GetRidgeIndex(false, p)]++;
 				for (auto i = 1; i <= 28; i++) {
-					data_x[GetLassoIndex(false, { i, p.x }, i <= p.y)]++;
+					lasso_data_x[GetLassoIndex(false, { i, p.x }, i <= p.y)]++;
 				}
 				break;
 			case Direction::L:
 				p.x--;
 				data_x[GetRidgeIndex(true, p)]++;
 				for (auto i = 1; i <= 28; i++) {
-					data_x[GetLassoIndex(true, { p.y, i }, i <= p.x)]++;
+					lasso_data_x[GetLassoIndex(true, { p.y, i }, i <= p.x)]++;
 				}
 				break;
 			}
@@ -1729,12 +1731,12 @@ struct UltimateEstimator {
 			auto lasso_cost = ridge_cost;
 			edge_costs.horizontal_edges[y][0] = lasso_cost;
 			for (auto x = 1; x <= 28; x++) {
-				lasso_cost += GetLassoIndex(true, { y, x }, true);
+				lasso_cost += lasso.GetWeight(GetLassoIndex(true, { y, x }, true));
 				edge_costs.horizontal_edges[y][x] = lasso_cost;  // ここもバグがこわい…
 			}
 			lasso_cost = 0.0;
 			for (auto x = 28; x >= 1; x--) {
-				lasso_cost += GetLassoIndex(true, { y, x }, false);
+				lasso_cost += lasso.GetWeight(GetLassoIndex(true, { y, x }, false));
 				edge_costs.horizontal_edges[y][x - 1] += lasso_cost;
 			}
 		}
@@ -1743,12 +1745,12 @@ struct UltimateEstimator {
 			auto lasso_cost = ridge_cost;
 			edge_costs.vertical_edges[0][x] = lasso_cost;
 			for (auto y = 1; y <= 28; y++) {
-				lasso_cost += GetLassoIndex(false, { y, x }, true);
+				lasso_cost += lasso.GetWeight(GetLassoIndex(false, { y, x }, true));
 				edge_costs.vertical_edges[y][x] = lasso_cost;
 			}
 			lasso_cost = 0.0;
 			for (auto y = 28; y >= 1; y--) {
-				lasso_cost += GetLassoIndex(false, { y, x }, false);
+				lasso_cost += lasso.GetWeight(GetLassoIndex(false, { y, x }, false));
 				edge_costs.vertical_edges[y - 1][x] += lasso_cost;
 			}
 		}
@@ -1762,6 +1764,22 @@ struct UltimateEstimator {
 		else {
 			return edge_costs.vertical_edges[p.y][p.x];
 		}
+	}
+
+	void Print() {
+		for (auto y = 0; y < 30; y++) {
+			for (auto x = 0; x < 29; x++) {
+				cout << (int)GetCost(true, { y, x }) << " ";
+			}
+			cout << endl;
+		}
+		for (auto y = 0; y < 29; y++) {
+			for (auto x = 0; x < 30; x++) {
+				cout << (int)GetCost(false, { y, x }) << " ";
+			}
+			cout << endl;
+		}
+
 	}
 
 };
@@ -1797,10 +1815,10 @@ struct Explorer {
 		signed char y, x;
 		bool h;
 	};
-	RidgeEstimator<BUNCH>* state;
+	UltimateEstimator* state;
 	array<array<array<double, 2>, 30>, 30> distances;
 	array<array<array<Node, 2>, 30>, 30> from;
-	Explorer(RidgeEstimator<BUNCH>& arg_state) : state(&arg_state), distances(), from() {}
+	Explorer(UltimateEstimator& arg_state) : state(&arg_state), distances(), from() {}
 
 	// 
 	void Step() {
@@ -1909,10 +1927,10 @@ struct Explorer {
 struct Solver {
 	//State state;
 	//Estimator estimator;
-	RidgeEstimator<BUNCH> estimator;
+	UltimateEstimator estimator;
 	Explorer explorer;
 
-	Solver() : estimator(LAMBDA), explorer(estimator) {}
+	Solver() : estimator(LAMBDA, LASSO_LAMBDA), explorer(estimator) {}
 
 	inline string Solve() {
 		// 結果は Info::paths に格納され、文字列化したものを返す
