@@ -965,19 +965,23 @@ struct RidgeRegression {
 	}
 };
 
+
+// ラッソ回帰
+// sklearn と比べると、 lambda = データ数 * alpha にして、 fit_intercept=False にすると結果が一致する
 template<int dimension, int max_n_data>
 struct LassoRegression {
 	Stack<array<double, dimension>, max_n_data> X;             // 説明変数  // 0 要素を直接持つのは無駄だけどまあ
 	//Stack<double, max_n_data> y;                               // 目的変数  // これ別に保持しておく必要ない
 	array<Stack<int, max_n_data>, dimension> nonzero_indexes;  // 各説明変数に対し、それが影響するすべてのデータのインデックスを持つ
-	
+	array<double, dimension> squared_norm;                     // 各説明変数の l2 ノルムの 2 乗
+
 	double lambda;
 
 	array<double, dimension> weights;
 	//Stack<double, max_n_data> y_pred;
 	Stack<double, max_n_data> residuals;  // 目的変数から予測値を引いた値
 
-	LassoRegression(const double& arg_lambda) : X(), /*y(),*/ nonzero_indexes(), lambda(arg_lambda), weights(), residuals() {}
+	LassoRegression(const double& arg_lambda) : X(), /*y(),*/ nonzero_indexes(), squared_norm(), lambda(arg_lambda), weights(), residuals() {}
 	
 	// O(X の非 0 要素数)
 	inline void Iterate() {  // TODO : 枝刈り
@@ -987,7 +991,7 @@ struct LassoRegression {
 			for (const auto& i : nonzero_indexes[j]) {
 				rho += X[i][j] * (residuals[i] + old_weight * X[i][j]);  // x_j^T r  // old_weight * X[i][j] の項は前計算で省けるけどまあ
 			}  // これ 1/N しないと合計二乗誤差、1/N すると平均二乗誤差か？？？
-			const auto& new_weight = SoftThreshold(rho);
+			const auto& new_weight = SoftThreshold(rho) / (squared_norm[j]);
 			if (new_weight == old_weight) continue;
 			for (const auto& i : nonzero_indexes[j]) {
 				residuals[i] -= (new_weight - weights[j]) * X[i][j];
@@ -1007,9 +1011,10 @@ struct LassoRegression {
 		//y.push(data_y);
 		residuals.push(data_y);
 		for (auto j = 0; j < dimension; j++) {
-			residuals.back() -= data_x[j] * weights[j];
 			if (data_x[j] != 0.0) {
+				residuals.back() -= data_x[j] * weights[j];
 				nonzero_indexes[j].push(X.size() - 1);
+				squared_norm[j] += data_x[j] * data_x[j];
 			}
 		}
 	}
@@ -1599,7 +1604,8 @@ struct UltimateEstimator {
 	Graph<double> edge_costs;  // 各辺の予測値
 	
 	UltimateEstimator(const double& ridge_lambda, const double& lasso_lambda) :
-		ridge(ridge_lambda), weight_memo(), already_memorized(), lasso(lasso_lambda) {}
+		ridge(ridge_lambda), weight_memo(), already_memorized(), ridge_train_data(), ridge_estimated_distances(),
+		lasso(lasso_lambda), edge_costs() {}
 
 	inline int GetRidgeIndex(const bool& horizontal, const Vec2<int>& p) const {
 		return horizontal ? 30 + p.y : p.x;
@@ -2218,9 +2224,35 @@ namespace Experiment {
 };
 
 
+namespace Test {
+	void lasso_test() {
+		const auto lambda = 6;
+		auto lasso = LassoRegression<5, 6>(lambda);
+		const auto X = array<array<double, 5>, 6>{
+			array<double, 5>
+			{ 0, 1, 2, 3, 4 },
+			{ 5, 6, 7, 8, 9 },
+			{ 3, 2, 7, 0, 2 },
+			{ 9, 2, 5, 3, 1 },
+			{ 0, 0, 0, 2, 5 },
+			{ 9,8,7,6,1 }
+		};
+		const auto y = array<double, 6>{ 5, 8, 3, 2, 1, 3};
+		for (auto i = 0; i < X.size(); i++) {
+			lasso.AddData(X[i], y[i]);
+		}
+		for (auto i = 0; i < 1000; i++)lasso.Iterate();
+
+		for (auto i = 0; i < 5; i++) {
+			cout << lasso.GetWeight(i) << endl;
+		}
+	}
+}
+
 int main(){
-	Solve();
+	//Solve();
 	//Experiment::Experiment();
+	Test::lasso_test();
 #ifdef _MSC_VER
 	int a;
 	while (1) cin >> a;
