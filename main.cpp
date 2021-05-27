@@ -39,7 +39,7 @@
 // ========================== parameters ==========================
 
 // ridge regression
-constexpr int BUNCH = 5;  //
+constexpr int BUNCH = 29;  //
 constexpr double LAMBDA = 10.0;
 
 // explorer  // turning_cost もある
@@ -2250,9 +2250,9 @@ namespace Test {
 }
 
 int main(){
-	//Solve();
+	Solve();
 	//Experiment::Experiment();
-	Test::lasso_test();
+	//Test::lasso_test();
 #ifdef _MSC_VER
 	int a;
 	while (1) cin >> a;
