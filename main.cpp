@@ -1134,10 +1134,10 @@ struct UltimateEstimator {
 
 	inline double GetCost(const bool& horizonatal_edge, const Vec2<int>& p) {
 		if (horizonatal_edge) {
-			return edge_costs.horizontal_edges[p.y][p.x];
+			return clipped(edge_costs.horizontal_edges[p.y][p.x], 1100.0, 8900.0);
 		}
 		else {
-			return edge_costs.vertical_edges[p.y][p.x];
+			return clipped(edge_costs.vertical_edges[p.y][p.x], 1100.0, 8900.0);
 		}
 	}
 
