@@ -44,13 +44,17 @@ constexpr double LAMBDA = 164.79815141370864;           // OPTIMIZE [1e-2, 1e4] 
 // lasso regression
 constexpr double LASSO_LAMBDA = 17216.974925842333;      // OPTIMIZE [1e3, 1e6] LOG
 
-// explorer  // turning_cost もある
+// explorer
 constexpr double UCB1_COEF = 502.42358003127214;       // OPTIMIZE [1e0, 1e4] LOG
 constexpr double UCB1_EPS = 0.6984158334936159;          // OPTIMIZE [1e-3, 1e1] LOG
 constexpr double TURNING_COST_50 = 3616849.841967807;   // OPTIMIZE [1e0, 1e7] LOG
 constexpr double TURNING_COST_100 = 20079.005861955284;  // OPTIMIZE [1e0, 1e5] LOG
 constexpr double TURNING_COST_150 = 1984.8049244192123;  // OPTIMIZE [1e0, 1e5] LOG
 constexpr double TURNING_COST_200 = 7837.489734778632;  // OPTIMIZE [1e0, 1e5] LOG
+
+// 平滑化の基準
+constexpr double FLATTEN_THRESHOLD_TURN = 50.0;
+constexpr double FLATTEN_THRESHOLD_B = 5000.0;
 
 // 未使用
 constexpr double TURNING_COST_START = 200.0;
@@ -1159,7 +1163,7 @@ struct UltimateEstimator {
 
 	// lasso の寄与が小さい時、平滑化
 	inline double GetCost(const bool& horizonatal_edge, const Vec2<int>& p) {
-		if (log((double)(Info::turn + 1) / 50.0) * 5000.0 > stats.mean_abs_lasso_weight) {
+		if (log((double)(Info::turn + 1) / FLATTEN_THRESHOLD_TURN) * FLATTEN_THRESHOLD_B > stats.mean_abs_lasso_weight) {
 			if (horizonatal_edge) return road_costs[30 + p.y];
 			else return road_costs[p.x];
 		}
