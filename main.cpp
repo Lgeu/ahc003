@@ -39,18 +39,18 @@
 // ========================== parameters ==========================
 
 // ridge regression
-constexpr double LAMBDA = 10.0;
+constexpr double LAMBDA = 10.023437249962882;           // OPTIMIZE [1e-2, 1e4] LOG
 
 // lasso regression
-constexpr double LASSO_LAMBDA = 2e4;
+constexpr double LASSO_LAMBDA = 17617.684652813812;     // OPTIMIZE [1e3, 1e6] LOG
 
 // explorer  // turning_cost もある
-constexpr double UCB1_COEF = 100.0;
-constexpr double UCB1_EPS = 1.0;
-constexpr double TURNING_COST_50 = 1e7;
-constexpr double TURNING_COST_100 = 1e1;
-constexpr double TURNING_COST_150 = 1e1;
-constexpr double TURNING_COST_200 = 1e1;
+constexpr double UCB1_COEF = 173.7497264204519;         // OPTIMIZE [1e0, 1e4] LOG
+constexpr double UCB1_EPS = 9.270110471156634;          // OPTIMIZE [1e-3, 1e1] LOG
+constexpr double TURNING_COST_50 = 3644404.168548131;   // OPTIMIZE [1e0, 1e7] LOG
+constexpr double TURNING_COST_100 = 29681.745239923577;  // OPTIMIZE [1e0, 1e5] LOG
+constexpr double TURNING_COST_150 = 4252.235177227593;  // OPTIMIZE [1e0, 1e5] LOG
+constexpr double TURNING_COST_200 = 5379.553685864049;  // OPTIMIZE [1e0, 1e5] LOG
 
 // 未使用
 constexpr double TURNING_COST_START = 200.0;
@@ -1421,7 +1421,7 @@ void Solve() {
 // 内部の H, V が完全にわかったとした場合、スコアはどうなるか？
 namespace Experiment {
 	auto D = -1;
-	auto M = 2;
+	auto M = -1;
 	auto H = array<array<int, 2>, 30>();
 	auto x = array<array<int, 3>, 30>();
 	auto h = array<array<int, 29>, 30>();
@@ -1540,10 +1540,11 @@ namespace Experiment {
 
 	void Generate() {
 		D = rng.randint(100, 2001);
+		M = rng.randint(1, 3);
 		for (auto&& Hi : H) for (auto&& Hij : Hi) Hij = rng.randint(1000 + D, 9001 - D);
 		for (auto&& xi : x) {
 			xi[0] = 0;
-			xi[1] = rng.randint(1, 29);
+			xi[1] = M == 2 ? rng.randint(1, 29) : 29;
 			xi[2] = 29;
 		}
 		for (int i = 0; i < 30; i++) {
@@ -1556,7 +1557,7 @@ namespace Experiment {
 		for (auto&& Vi : V) for (auto&& Vij : Vi) Vij = rng.randint(1000 + D, 9001 - D);
 		for (auto&& yi : y) {
 			yi[0] = 0;
-			yi[1] = rng.randint(1, 29);
+			yi[1] = M == 2 ? rng.randint(1, 29) : 29;
 			yi[2] = 29;
 		}
 		for (int j = 0; j < 30; j++) {
@@ -1574,6 +1575,32 @@ namespace Experiment {
 			if ((s - t).l1_norm() >= 10) return make_pair(s, t);
 		} while (true);
 	}
+
+	void PrintNewData() {
+		Generate();
+		for (const auto& hi : h) {
+			for (const auto& hij : hi) {
+				cout << hij << " ";
+			}
+			cout << endl;
+		}
+		for (const auto& vi : v) {
+			for (const auto& vij : vi) {
+				cout << vij << " ";
+			}
+			cout << endl;
+		}
+		rep(q, 1000) {
+			const auto st = GetQuery();
+			const auto a = CalculatePathDistance<get_cost>(Dijkstra<get_cost>(st.first, st.second), st.first);
+			cout << st.first.y << " " << st.first.x << " " << st.second.y << " " << st.second.x << " "
+				<< a << " " << rng.random() * 0.2 + 0.9
+				<< endl;
+		}
+		cout << " " << D << " " << M << endl;;
+	}
+
+
 	void Experiment() {
 		auto sum_score = 0.0;
 		for (int i = 0; i < 100; i++) {
@@ -1620,9 +1647,16 @@ namespace Test {
 }
 
 int main() {
-	Solve();
+	//Solve();
 	//Experiment::Experiment();
 	//Test::lasso_test();
+
+	rep(i, 100) {
+		rng.seed = i + 12345;
+		rep (j, 20) { rng.next(); }
+		Experiment::PrintNewData();
+	}
+	
 #ifdef _MSC_VER
 	int a;
 	while (1) cin >> a;
