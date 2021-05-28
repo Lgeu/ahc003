@@ -38,7 +38,13 @@
 
 // ========================== parameters ==========================
 
-constexpr int BUNCH = 29;  //
+// ridge regression
+constexpr int BUNCH = 10;  //
+constexpr double LAMBDA = 50.0;
+
+// explorer  // turning_cost もある
+constexpr double UCB1_COEF = 100.0;
+
 
 
 // ========================== macroes ==========================
@@ -913,7 +919,6 @@ namespace Info {
 
 template<int dimension>
 struct RidgeRegression {
-	// 5000.0 が基準になるように入力するように注意
 	// w = (X^T X + λI)^{-1} X^T y
 	// A := X^T X + λI
 	// b := X^T y
@@ -1371,6 +1376,7 @@ struct State {
 */
 
 
+
 template<int bunch=5>
 struct RidgeEstimator {
 	constexpr static int bunch_per_road = (29 + bunch - 1) / bunch;
@@ -1379,7 +1385,17 @@ struct RidgeEstimator {
 	array<double, ridge_dimension> weight_memo;  // 辺の重みのメモ (計算に O(dimension) かかるため)
 	bitset<ridge_dimension> already_memorized;   // 辺の重みを既にメモしたか。ターン毎に初期化
 
-	RidgeEstimator(const double& lambda) : ridge(lambda), weight_memo(), already_memorized() {}
+	// smoothing
+	array<int, 30> xs, ys;                       // どこで変わるか [1, 28] ターン毎に初期化
+	array<array<double, 2>, 30> H, V;            // 道の強さ基準値。ターン毎に初期化
+
+	RidgeEstimator(const double& lambda) : ridge(lambda), weight_memo(), already_memorized(),
+		xs(), ys(), H(), V() {
+		fill(xs.begin(), xs.end(), 15);
+		fill(ys.begin(), ys.end(), 15);
+		fill(&H[0][0], &H[0][0] + sizeof(H) / sizeof(double), 5000.0);
+		fill(&V[0][0], &V[0][0] + sizeof(V) / sizeof(double), 5000.0);
+	}
 
 	inline int GetBunchIndex(const bool& horizontal, const Vec2<int>& p) const {
 		return horizontal ? ridge_dimension / 2 + p.y * bunch_per_road + p.x / bunch
@@ -1417,9 +1433,74 @@ struct RidgeEstimator {
 		}
 		ridge.AddData(data_x, data_y);
 		already_memorized.reset();
+		Smooth();
+	}
+
+	inline void Smooth() {
+		// シグモイド関数 (一般化ロジスティック関数) でなめらかにする
+		// 最初に最適なステップ関数を見つけて、その境界位置を使ってシグモイド関数の a を調整する
+		// と思ったけど一旦ステップ関数だけで試すことにした
+
+		for (auto h = 0; h < 2; h++) {
+			for (auto road = 0; road < 30; road++) {
+				// 偏差平方和が小さくなるように 28 通り全探索
+				auto r_n = 0;
+				auto r_sum_square_cost = 0.0;
+				auto r_sum_cost = 0.0;
+				for (auto i = 0; i < 29; i++) {
+					const auto cost = GetRawCost(h, h ? Vec2<int>{road, i} : Vec2<int>{ i, road });
+					const auto& n = h ? Info::n_tried.horizontal_edges[road][i] : Info::n_tried.vertical_edges[i][road];
+					r_n += n;
+					r_sum_square_cost += cost * cost * (double)n;
+					r_sum_cost += cost * (double)n;
+				}
+				if (r_n == 0) continue;  // その道路を 1 回も使っていなければここで弾かれる
+				auto l_n = 0;
+				auto l_sum_square_cost = 0.0;
+				auto l_sum_cost = 0.0;
+				auto mi = 1e300;  // その道路の偏差平方和の最小値
+				auto ami = 14;
+				auto best_l_mean_cost = r_sum_cost / (double)r_n;  // その道路を 1 区画しか使ってなかったときはこの値は次のループで更新されずそのまま使われる
+				auto best_r_mean_cost = r_sum_cost / (double)r_n;  // 同上
+				for (auto i = 1; i <= 28; i++) {
+					const auto& cost = GetRawCost(h, h ? Vec2<int>{road, i} : Vec2<int>{ i, road });
+					const auto& n = h ? Info::n_tried.horizontal_edges[road][i] : Info::n_tried.vertical_edges[i][road];
+					l_n += n;
+					if (l_n == 0) continue;
+					l_sum_square_cost += cost * cost * (double)n;
+					l_sum_cost += cost * (double)n;
+					r_n -= n;
+					if (r_n == 0) break;
+					r_sum_square_cost -= cost * cost * (double)n;
+					r_sum_cost -= cost * (double)n;
+					const auto l_sum_square_deviation = l_sum_square_cost - l_sum_cost * l_sum_cost / (double)l_n;  // 偏差平方和
+					const auto r_sum_square_deviation = r_sum_square_cost - r_sum_cost * r_sum_cost / (double)r_n;  // 偏差平方和
+					if (chmin(mi, l_sum_square_deviation + r_sum_square_deviation)) {
+						ami = i;
+						best_l_mean_cost = l_sum_cost / (double)l_n;
+						best_r_mean_cost = r_sum_cost / (double)r_n;
+					}
+				}
+
+				auto& xys = h ? xs : ys;  // どこで変わるか [1, 28]
+				auto& HV = h ? H : V;
+				xys[road] = ami;
+				HV[road][0] = best_l_mean_cost;
+				HV[road][1] = best_r_mean_cost;
+			}
+		}
 	}
 
 	inline double GetCost(const bool& horizonatal_edge, const Vec2<int>& p) {
+		if (horizonatal_edge) {
+			return H[p.y][p.x >= xs[p.y]];
+		}
+		else {
+			return V[p.x][p.y >= ys[p.x]];
+		}
+	}
+
+	inline double GetRawCost(const bool& horizonatal_edge, const Vec2<int>& p) {
 		const auto bunch_index = GetBunchIndex(horizonatal_edge, p);
 		if (already_memorized[bunch_index]) {
 			return weight_memo[bunch_index];
@@ -1579,7 +1660,7 @@ struct Explorer {
 
 	inline double UCB1(const int& n) {
 		// log は無視
-		return 1000.0 / sqrt(n + 1) * (1.0 - Info::next_score_coef);
+		return UCB1_COEF / sqrt(n + 1) * (1.0 - Info::next_score_coef);
 	}
 };
 
@@ -1590,7 +1671,7 @@ struct Solver {
 	RidgeEstimator<BUNCH> estimator;
 	Explorer explorer;
 
-	Solver() : estimator(10.0), explorer(estimator) {}
+	Solver() : estimator(LAMBDA), explorer(estimator) {}
 
 	inline string Solve() {
 		// 結果は Info::paths に格納され、文字列化したものを返す
@@ -1721,7 +1802,7 @@ void Solve() {
 	}
 	if (LOCAL_TEST) {
 		cout << (int)(2312311.0 * score + 0.5) << endl;
-		//solver.estimator.Print();
+		solver.estimator.Print();
 	}
 }
 
