@@ -39,18 +39,18 @@
 // ========================== parameters ==========================
 
 // ridge regression
-constexpr double LAMBDA = 10.023437249962882;           // OPTIMIZE [1e-2, 1e4] LOG
+constexpr double LAMBDA = 164.79815141370864;           // OPTIMIZE [1e-2, 1e4] LOG
 
 // lasso regression
-constexpr double LASSO_LAMBDA = 17617.684652813812;     // OPTIMIZE [1e3, 1e6] LOG
+constexpr double LASSO_LAMBDA = 17216.974925842333;      // OPTIMIZE [1e3, 1e6] LOG
 
 // explorer  // turning_cost もある
-constexpr double UCB1_COEF = 173.7497264204519;         // OPTIMIZE [1e0, 1e4] LOG
-constexpr double UCB1_EPS = 9.270110471156634;          // OPTIMIZE [1e-3, 1e1] LOG
-constexpr double TURNING_COST_50 = 3644404.168548131;   // OPTIMIZE [1e0, 1e7] LOG
-constexpr double TURNING_COST_100 = 29681.745239923577;  // OPTIMIZE [1e0, 1e5] LOG
-constexpr double TURNING_COST_150 = 4252.235177227593;  // OPTIMIZE [1e0, 1e5] LOG
-constexpr double TURNING_COST_200 = 5379.553685864049;  // OPTIMIZE [1e0, 1e5] LOG
+constexpr double UCB1_COEF = 502.42358003127214;       // OPTIMIZE [1e0, 1e4] LOG
+constexpr double UCB1_EPS = 0.6984158334936159;          // OPTIMIZE [1e-3, 1e1] LOG
+constexpr double TURNING_COST_50 = 3616849.841967807;   // OPTIMIZE [1e0, 1e7] LOG
+constexpr double TURNING_COST_100 = 20079.005861955284;  // OPTIMIZE [1e0, 1e5] LOG
+constexpr double TURNING_COST_150 = 1984.8049244192123;  // OPTIMIZE [1e0, 1e5] LOG
+constexpr double TURNING_COST_200 = 7837.489734778632;  // OPTIMIZE [1e0, 1e5] LOG
 
 // 未使用
 constexpr double TURNING_COST_START = 200.0;
