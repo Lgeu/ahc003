@@ -39,14 +39,23 @@
 // ========================== parameters ==========================
 
 // ridge regression
-constexpr int BUNCH = 29;  //
 constexpr double LAMBDA = 10.0;
 
+// lasso regression
 constexpr double LASSO_LAMBDA = 2e4;
 
 // explorer  // turning_cost もある
 constexpr double UCB1_COEF = 100.0;
+constexpr double UCB1_EPS = 1.0;
+constexpr double TURNING_COST_50 = 1e7;
+constexpr double TURNING_COST_100 = 1e1;
+constexpr double TURNING_COST_150 = 1e1;
+constexpr double TURNING_COST_200 = 1e1;
 
+// 未使用
+constexpr double TURNING_COST_START = 200.0;
+constexpr double TURNING_COST_A = -40.0;
+constexpr double TURNING_COST_B = 1.0;
 
 
 // ========================== macroes ==========================
@@ -734,6 +743,33 @@ namespace radix_heap {
 }  // namespace radix_heap
 
 
+// シグモイド関数
+inline double sigmoid(const double& a, const double& x) {
+	return 1.0 / (1.0 + exp(-a * x));
+}
+
+// 単調増加関数 f: [0, 1] -> [0, 1]
+inline double monotonically_increasing_function(const double& a, const double& b, const double& x) {
+	ASSERT(b >= 0.0, "parameter `b` should be positive.");
+	// a == 0 なら f(x) = x
+	// a が大きいとひねくれる
+	// b は最初に速く増えるか最後に速く増えるか
+	// a は -10 ～ 10 くらいまで、 b は 0 ～ 10 くらいまで探せば良さそう
+
+	if (a == 0) return x;
+	const double x_left = a > 0 ? -b - 0.5 : b - 0.5;
+	const double x_right = x_left + 1.0;
+	const double left = sigmoid(a, x_left);
+	const double right = sigmoid(a, x_right);
+	const double y = sigmoid(a, x + x_left);
+	return (y - left) / (right - left);  // left とかが大きい値になると誤差がヤバイ　最悪 0 除算になる  // b が正なら大丈夫っぽい
+}
+
+// 単調な関数 f: [0, 1] -> [start, end]
+inline double monotonic_function(const double& start, const double& end, const double& a, const double& b, const double& x) {
+	return monotonically_increasing_function(a, b, x) * (end - start) + start;
+}
+
 // ---------------------------------------------------------
 //  end library
 // ---------------------------------------------------------
@@ -749,7 +785,7 @@ enum struct Direction : signed char {
 	D, R, U, L
 };
 
-constexpr auto Dyx = array<Vec2<int>, 4>{Vec2<int>{1, 0}, { 0, 1 }, { -1, 0 }, { 0, -1 }};
+constexpr auto Dyx = array<Vec2<int>, 4>{Vec2<int>{ 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 }};
 
 
 struct Input {
@@ -1132,7 +1168,13 @@ struct Explorer {
 	// 
 	void Step() {
 		// ダイクストラで最短路を見つける
-		const auto turning_cost = Info::turn < 100 ? 1e7 : Info::turn < 300 ? 1e4 : 0.0;
+		//const auto turning_cost = monotonic_function(TURNING_COST_START, 0.0, TURNING_COST_A, TURNING_COST_B, (double)Info::turn / 999.0);  //
+		const auto turning_cost
+			= Info::turn < 50 ? TURNING_COST_50
+			: Info::turn < 100 ? TURNING_COST_100
+			: Info::turn < 150 ? TURNING_COST_150
+			: Info::turn < 200 ? TURNING_COST_200
+			: 0.0;
 		constexpr auto inf = numeric_limits<double>::max();
 		fill(&distances[0][0][0], &distances[0][0][0] + sizeof(distances) / sizeof(decltype(inf)), inf);
 
@@ -1229,7 +1271,7 @@ struct Explorer {
 
 	inline double UCB1(const int& n) {
 		// log は無視
-		return UCB1_COEF / sqrt(n + 1) * (1.0 - Info::next_score_coef);
+		return UCB1_COEF / sqrt((double)n + UCB1_EPS) * (1.0 - Info::next_score_coef);
 	}
 };
 
