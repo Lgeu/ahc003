@@ -779,6 +779,7 @@ inline double monotonic_function(const double& start, const double& end, const d
 #define LOCAL_TEST 0
 #else
 #define LOCAL_TEST 1
+#define PRINT_STATS
 #endif
 
 enum struct Direction : signed char {
@@ -1125,6 +1126,10 @@ struct UltimateEstimator {
 			}
 		}
 
+		// 統計データ出力
+#ifdef PRINT_STATS
+		GetStats().Print(cerr);
+#endif
 	}
 
 	inline double GetCost(const bool& horizonatal_edge, const Vec2<int>& p) {
@@ -1134,6 +1139,33 @@ struct UltimateEstimator {
 		else {
 			return edge_costs.vertical_edges[p.y][p.x];
 		}
+	}
+
+	struct Stats {
+		double root_mean_squared_ridge_weight;
+		double mean_abs_lasso_weight;
+		Stats() = default;
+		void Print(ostream& os) {
+			os << root_mean_squared_ridge_weight << " " << mean_abs_lasso_weight << endl;
+		}
+	};
+	inline Stats GetStats() {
+
+		// ridge の予測値
+		Stats res = Stats{};
+		ASSERT(res.mean_abs_lasso_weight == 0.0, "not initialized");
+
+		for (auto y = 0; y < 30; y++) { res.root_mean_squared_ridge_weight += pow(GetRidgeCost(true, { y, 0 }) - 5000.0, 2); };
+		for (auto x = 0; x < 30; x++) { res.root_mean_squared_ridge_weight += pow(GetRidgeCost(false, { 0, x }) - 5000.0, 2); };
+		res.root_mean_squared_ridge_weight /= 60.0;
+		res.root_mean_squared_ridge_weight = sqrt(res.root_mean_squared_ridge_weight);
+
+		// lasso の予測値 ≒ ridge の予測誤差
+		for (auto y = 0; y < 30; y++) for (auto x = 0; x < 29; x++) res.mean_abs_lasso_weight += abs(GetCost(true, { y, x }) - GetRidgeCost(true, { y, x }));
+		for (auto x = 0; x < 30; x++) for (auto y = 0; y < 29; y++) res.mean_abs_lasso_weight += abs(GetCost(false, { y, x }) - GetRidgeCost(false, { y, x }));
+		res.mean_abs_lasso_weight /= 60.0;
+
+		return res;
 	}
 
 	void Print() {
@@ -1646,16 +1678,13 @@ namespace Test {
 	}
 }
 
-int main() {
-	//Solve();
+int main(int argc, char* argv[]) {
+	Solve();
 	//Experiment::Experiment();
 	//Test::lasso_test();
 
-	rep(i, 100) {
-		rng.seed = i + 12345;
-		rep (j, 20) { rng.next(); }
-		Experiment::PrintNewData();
-	}
+	//const auto seed = atoi(argv[1]);
+
 	
 #ifdef _MSC_VER
 	int a;
