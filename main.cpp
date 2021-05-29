@@ -1803,9 +1803,11 @@ namespace Experiment {
 		return res;
 	}
 
-	void Generate() {
-		D = rng.randint(100, 2001);
-		M = rng.randint(1, 3);
+	void Generate(int D = 0, int M = 0) {
+		if (D == 0) D = rng.randint(100, 2001);
+		if (M == 0) M = rng.randint(1, 3);
+		ASSERT_RANGE(D, 100, 2001);
+		ASSERT_RANGE(M, 1, 3);
 		for (auto&& Hi : H) for (auto&& Hij : Hi) Hij = rng.randint(1000 + D, 9001 - D);
 		for (auto&& xi : x) {
 			xi[0] = 0;
@@ -1841,8 +1843,8 @@ namespace Experiment {
 		} while (true);
 	}
 
-	void PrintNewData() {
-		Generate();
+	void PrintNewData(int D = 0, int M = 0) {
+		Generate(D, M);
 		for (const auto& hi : h) {
 			for (const auto& hij : hi) {
 				cout << hij << " ";
@@ -1912,11 +1914,20 @@ namespace Test {
 }
 
 int main(int argc, char* argv[]) {
-	Solve();
+	//Solve();
 	//Experiment::Experiment();
 	//Test::lasso_test();
 
-	//const auto seed = atoi(argv[1]);
+
+	if (argc >= 4) {
+		const auto seed = atoi(argv[1]);
+		rng.seed = seed + 12345;
+		rep(i, 50)rng.next();
+
+		const auto D = atoi(argv[2]);
+		const auto M = atoi(argv[3]);
+		Experiment::PrintNewData(D, M);
+	}
 
 
 #ifdef _MSC_VER
