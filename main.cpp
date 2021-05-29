@@ -859,7 +859,7 @@ namespace Info {
 	auto vertical_road_to_turns = array<Stack<pair<short, unsigned int>, 1000>, 30>();    // 道を入れると、その辺を通ったターンと通った辺を返してくれる
 }
 
-
+// ridge 回帰
 template<int dimension>
 struct RidgeRegression {
 	// w = (X^T X + λI)^{-1} X^T y
@@ -909,7 +909,7 @@ struct RidgeRegression {
 };
 
 
-// ラッソ回帰
+// LASSO (座標降下法)
 // sklearn と比べると、 lambda = データ数 * alpha にして、 fit_intercept=False にすると結果が一致する
 template<int dimension, int max_n_data>
 struct LassoRegression {
@@ -969,6 +969,7 @@ struct LassoRegression {
 };
 
 
+// ridge 回帰 (座標降下法)
 template<int dimension, int max_n_data>
 struct FastRidgeRegression {
 	Stack<array<double, dimension>, max_n_data> X;             // 説明変数  // 0 要素を直接持つのは無駄だけどまあ
@@ -990,7 +991,7 @@ struct FastRidgeRegression {
 			const auto& old_weight = weights[j];
 			for (const auto& i : nonzero_indexes[j]) {
 				rho += X[i][j] * (residuals[i] + old_weight * X[i][j]);  // x_j^T r  // old_weight * X[i][j] の項は前計算で省けるけどまあ
-			}  // これ 1/N しないと合計二乗誤差、1/N すると平均二乗誤差か？？？
+			}
 			const auto& new_weight = rho / (squared_norm[j] + lambda);
 			if (new_weight == old_weight) continue;
 			for (const auto& i : nonzero_indexes[j]) {
@@ -1325,16 +1326,52 @@ struct UltimateEstimator {
 
 };
 
+template<int n_estimators>
+struct Ensemble {
+	char buffer[sizeof(UltimateEstimator) * n_estimators];
+	//array<UltimateEstimator, n_estimators> estimators;
+	UltimateEstimator* estimators;
+	FastRidgeRegression<n_estimators, 999> model;
+
+	Ensemble(const array<array<double, 3>, n_estimators>& parameters) :
+		buffer(), estimators(reinterpret_cast<UltimateEstimator*>(buffer)), model(0.1) {
+		for (int i = 0; i < n_estimators; i++) {
+			new(&estimators[i]) UltimateEstimator(parameters[i][0], parameters[i][1], parameters[i][2]);
+		}
+	}
+
+	inline void Step() {
+		for (int i = 0; i < n_estimators; i++) {
+			estimators[i].Step();
+		}
+	}
+
+	inline double GetCost(const bool& horizonatal_edge, const Vec2<int>& p) {
+		auto res = 0.0;
+		for (int i = 0; i < n_estimators; i++) {
+			res += estimators[i].GetCost(horizonatal_edge, p);
+		}
+		res /= (double)n_estimators;
+		return res;
+	}
+
+	inline void Print() {
+		for (int i = 0; i < n_estimators; i++) {
+			estimators[i].Print();
+			cout << endl;
+		}
+	}
+};
 
 struct Explorer {
 	struct Node {
 		signed char y, x;
 		bool h;
 	};
-	UltimateEstimator* state;
+	Ensemble<2>* state;
 	array<array<array<double, 2>, 30>, 30> distances;
 	array<array<array<Node, 2>, 30>, 30> from;
-	Explorer(UltimateEstimator& arg_state) : state(&arg_state), distances(), from() {}
+	Explorer(Ensemble<2>& arg_state) : state(&arg_state), distances(), from() {}
 
 	// 
 	void Step() {
@@ -1452,10 +1489,13 @@ struct Explorer {
 struct Solver {
 	//State state;
 	//Estimator estimator;
-	UltimateEstimator estimator;
+	Ensemble<2> estimator;
 	Explorer explorer;
 
-	Solver() : estimator(LAMBDA, LASSO_LAMBDA, RIDGE2_LAMBDA), explorer(estimator) {}
+	Solver() : estimator({
+			array<double, 3>{ LAMBDA, LASSO_LAMBDA, RIDGE2_LAMBDA },
+			array<double, 3>{ 65.29644842443841, 19073.15112614794, 65887.21036463806 }
+		}), explorer(estimator) {}
 
 	inline string Solve() {
 		// 結果は Info::paths に格納され、文字列化したものを返す
