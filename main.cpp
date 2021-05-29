@@ -1212,7 +1212,7 @@ struct UltimateEstimator {
 			auto lasso_estimated_distance = 0.0;
 			auto p = input.S[turn];
 			static auto ridge2_data_x = array<double, ridge2_dimension>();
-			fill(ridge2_data_x.begin(), ridge2_data_x.end(), 0.0);
+			if (turn == Info::turn - 1) fill(ridge2_data_x.begin(), ridge2_data_x.end(), 0.0);
 			for (const auto& d : Info::paths[turn]) {
 				switch (d) {
 				case Direction::D:
