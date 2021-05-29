@@ -1341,13 +1341,13 @@ struct Explorer {
 		// ダイクストラで最短路を見つける
 		//const auto turning_cost = monotonic_function(TURNING_COST_START, 0.0, TURNING_COST_A, TURNING_COST_B, (double)Info::turn / 999.0);  //
 		const auto turning_cost
-			= Info::turn < 30 ? 1e7 :TURNING_COST_AT_100 * pow(TURNING_COST_COEF, Info::turn - 100.0);
-			/*= Info::turn < 50 ? TURNING_COST_50
-			: Info::turn < 100 ? TURNING_COST_100
-			: Info::turn < 150 ? TURNING_COST_150
-			: Info::turn < 200 ? TURNING_COST_200
-			: 0.0;
-			*/
+			= Info::turn < 50 ? 1e7 : TURNING_COST_AT_100 * pow(TURNING_COST_COEF, Info::turn - 100.0);
+		/*= Info::turn < 50 ? TURNING_COST_50
+		: Info::turn < 100 ? TURNING_COST_100
+		: Info::turn < 150 ? TURNING_COST_150
+		: Info::turn < 200 ? TURNING_COST_200
+		: 0.0;
+		*/
 		constexpr auto inf = numeric_limits<double>::max();
 		fill(&distances[0][0][0], &distances[0][0][0] + sizeof(distances) / sizeof(decltype(inf)), inf);
 
@@ -1826,7 +1826,7 @@ int main(int argc, char* argv[]) {
 
 	//const auto seed = atoi(argv[1]);
 
-	
+
 #ifdef _MSC_VER
 	int a;
 	while (1) cin >> a;
