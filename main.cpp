@@ -44,6 +44,9 @@ constexpr double LAMBDA = 164.79815141370864;           // OPTIMIZE [1e-2, 1e4] 
 // lasso regression
 constexpr double LASSO_LAMBDA = 17216.974925842333;      // OPTIMIZE [1e3, 1e6] LOG
 
+// ridge regression for delta
+constexpr double RIDGE2_LAMBDA = 1000.0;
+
 // explorer
 constexpr double UCB1_COEF = 502.42358003127214;       // OPTIMIZE [1e0, 1e4] LOG
 constexpr double UCB1_EPS = 0.6984158334936159;          // OPTIMIZE [1e-3, 1e1] LOG
@@ -967,6 +970,55 @@ struct LassoRegression {
 };
 
 
+template<int dimension, int max_n_data>
+struct FastRidgeRegression {
+	Stack<array<double, dimension>, max_n_data> X;             // 説明変数  // 0 要素を直接持つのは無駄だけどまあ
+	array<Stack<int, max_n_data>, dimension> nonzero_indexes;  // 各説明変数に対し、それが影響するすべてのデータのインデックスを持つ
+	array<double, dimension> squared_norm;                     // 各説明変数の l2 ノルムの 2 乗
+
+	double lambda;
+
+	array<double, dimension> weights;
+	Stack<double, max_n_data> residuals;  // 目的変数から予測値を引いた値
+
+	FastRidgeRegression(const double& arg_lambda) : X(), nonzero_indexes(), squared_norm(), lambda(arg_lambda), weights(), residuals() {}
+
+	// O(X の非 0 要素数)
+	inline void Iterate() {  // TODO : 枝刈り
+		for (auto j = 0; j < dimension; j++) {  // 各座標方向に対して最適化
+			if (squared_norm[j] == 0.0) continue;
+			auto rho = 0.0;  // 最小二乗解
+			const auto& old_weight = weights[j];
+			for (const auto& i : nonzero_indexes[j]) {
+				rho += X[i][j] * (residuals[i] + old_weight * X[i][j]);  // x_j^T r  // old_weight * X[i][j] の項は前計算で省けるけどまあ
+			}  // これ 1/N しないと合計二乗誤差、1/N すると平均二乗誤差か？？？
+			const auto& new_weight = rho / (squared_norm[j] + lambda);
+			if (new_weight == old_weight) continue;
+			for (const auto& i : nonzero_indexes[j]) {
+				residuals[i] -= (new_weight - weights[j]) * X[i][j];
+			}
+			weights[j] = new_weight;
+		}
+	}
+
+	inline void AddData(const array<double, dimension>& data_x, const double& data_y) {
+		X.push(data_x);
+		residuals.push(data_y);
+		for (auto j = 0; j < dimension; j++) {
+			if (data_x[j] != 0.0) {
+				residuals.back() -= data_x[j] * weights[j];
+				nonzero_indexes[j].push(X.size() - 1);
+				squared_norm[j] += data_x[j] * data_x[j];
+			}
+		}
+	}
+
+	inline double GetWeight(const int& index) const {
+		return weights[index];
+	}
+};
+
+
 struct UltimateEstimator {
 	struct Stats {
 		double root_mean_squared_ridge_weight;
@@ -986,14 +1038,19 @@ struct UltimateEstimator {
 	// LASSO regression
 	constexpr static auto lasso_dimension = 30 * 28 * 2 * 2;
 	LassoRegression<lasso_dimension, 999> lasso;
+	Stack<double, 999> lasso_estimated_distances;
+
+	// Ridge regression for delta
+	constexpr static auto ridge2_dimension = 30 * 29 * 2;
+	FastRidgeRegression<ridge2_dimension, 999> ridge2;
 
 	Graph<double> edge_costs;      // 各辺の予測値
 	array<double, 60> road_costs;  // 各道の予測値
 	Stats stats;
 
-	UltimateEstimator(const double& ridge_lambda, const double& lasso_lambda) :
+	UltimateEstimator(const double& ridge_lambda, const double& lasso_lambda, const double& ridge2_lambda) :
 		ridge(ridge_lambda), weight_memo(), already_memorized(), ridge_train_data(), ridge_estimated_distances(),
-		lasso(lasso_lambda), edge_costs(), road_costs(), stats() {}
+		lasso(lasso_lambda), lasso_estimated_distances(), ridge2(ridge2_lambda), edge_costs(), road_costs(), stats() {}
 
 	inline int GetRidgeIndex(const bool& horizontal, const Vec2<int>& p) const {
 		return horizontal ? 30 + p.y : p.x;
@@ -1019,6 +1076,15 @@ struct UltimateEstimator {
 			else {
 				return (p.x * 2) * 28 + p.y - 1;
 			}
+		}
+	}
+
+	inline int GetRidge2Index(const bool& horizontal, const Vec2<int>& p) {
+		if (horizontal) {
+			return ridge2_dimension / 2 + p.y * 29 + p.x;
+		}
+		else {
+			return p.x * 29 + p.y;
 		}
 	}
 
@@ -1110,7 +1176,7 @@ struct UltimateEstimator {
 		// lasso の重み更新
 		lasso.Iterate();
 
-		// 最終的なコスト予測
+		// ridge と lasso 合わせたコスト予測
 		for (auto y = 0; y < 30; y++) {  // 横
 			const auto& ridge_cost = GetRidgeCost(true, { y, 0 });
 			auto lasso_cost = ridge_cost;
@@ -1140,6 +1206,52 @@ struct UltimateEstimator {
 			}
 		}
 
+
+		// ridge2 の目的変数の変更とデータ追加
+		for (auto turn = 0; turn < Info::turn; turn++) {
+			auto lasso_estimated_distance = 0.0;
+			auto p = input.S[turn];
+			static auto ridge2_data_x = array<double, ridge2_dimension>();
+			fill(ridge2_data_x.begin(), ridge2_data_x.end(), 0.0);
+			for (const auto& d : Info::paths[turn]) {
+				switch (d) {
+				case Direction::D:
+					lasso_estimated_distance += GetLassoCost(false, p);
+					ridge2_data_x[GetRidge2Index(false, p)]++;
+					p.y++;
+					break;
+				case Direction::R:
+					lasso_estimated_distance += GetLassoCost(true, p);
+					ridge2_data_x[GetRidge2Index(true, p)]++;
+					p.x++;
+					break;
+				case Direction::U:
+					p.y--;
+					lasso_estimated_distance += GetLassoCost(false, p);
+					ridge2_data_x[GetRidge2Index(false, p)]++;
+					break;
+				case Direction::L:
+					p.x--;
+					lasso_estimated_distance += GetLassoCost(true, p);
+					ridge2_data_x[GetRidge2Index(true, p)]++;
+					break;
+				}
+			}
+			if (turn != Info::turn - 1) {
+				ridge2.residuals[turn] -= lasso_estimated_distance - lasso_estimated_distances[turn];
+				lasso_estimated_distances[turn] = lasso_estimated_distance;
+			}
+			else {
+				ridge2.AddData(ridge2_data_x, observed_distance - lasso_estimated_distance);
+				lasso_estimated_distances.push(lasso_estimated_distance);
+			}
+		}
+
+		// ridge2 の重み更新
+		ridge2.Iterate();
+
+
+
 		// 統計データ出力
 		stats = GetStats();
 #ifdef PRINT_STATS
@@ -1163,7 +1275,7 @@ struct UltimateEstimator {
 		}
 	}
 	inline double GetCost(const bool& horizonatal_edge, const Vec2<int>& p) {
-		return GetLassoCost(horizonatal_edge, p);
+		return GetLassoCost(horizonatal_edge, p) + ridge2.GetWeight(GetRidge2Index(horizonatal_edge, p));
 	}
 	/*
 	// lasso の寄与が小さい時、平滑化
@@ -1342,7 +1454,7 @@ struct Solver {
 	UltimateEstimator estimator;
 	Explorer explorer;
 
-	Solver() : estimator(LAMBDA, LASSO_LAMBDA), explorer(estimator) {}
+	Solver() : estimator(LAMBDA, LASSO_LAMBDA, RIDGE2_LAMBDA), explorer(estimator) {}
 
 	inline string Solve() {
 		// 結果は Info::paths に格納され、文字列化したものを返す
