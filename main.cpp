@@ -1079,7 +1079,7 @@ struct UltimateEstimator {
 		}
 	}
 
-	inline int GetRidge2Index(const bool& horizontal, const Vec2<int>& p) {
+	inline int GetRidge2Index(const bool& horizontal, const Vec2<int>& p) const {
 		if (horizontal) {
 			return ridge2_dimension / 2 + p.y * 29 + p.x;
 		}
@@ -1266,7 +1266,7 @@ struct UltimateEstimator {
 		*/
 	}
 
-	inline double GetLassoCost(const bool& horizonatal_edge, const Vec2<int>& p) {
+	inline double GetLassoCost(const bool& horizonatal_edge, const Vec2<int>& p) const {
 		if (horizonatal_edge) {
 			return edge_costs.horizontal_edges[p.y][p.x];
 		}
@@ -1274,7 +1274,7 @@ struct UltimateEstimator {
 			return edge_costs.vertical_edges[p.y][p.x];
 		}
 	}
-	inline double GetCost(const bool& horizonatal_edge, const Vec2<int>& p) {
+	inline double GetCost(const bool& horizonatal_edge, const Vec2<int>& p) const {
 		return GetLassoCost(horizonatal_edge, p) + ridge2.GetWeight(GetRidge2Index(horizonatal_edge, p));
 	}
 	/*
@@ -1331,28 +1331,80 @@ struct Ensemble {
 	char buffer[sizeof(UltimateEstimator) * n_estimators];
 	//array<UltimateEstimator, n_estimators> estimators;
 	UltimateEstimator* estimators;
-	FastRidgeRegression<n_estimators, 999> model;
+	
+	//FastRidgeRegression<n_estimators, 999> model;
+	array<double, n_estimators> estimator_scores;  // 各 estimator の予測誤差の指数平滑移動平均
+	
 
 	Ensemble(const array<array<double, 3>, n_estimators>& parameters) :
-		buffer(), estimators(reinterpret_cast<UltimateEstimator*>(buffer)), model(0.1) {
+		buffer(), estimators(reinterpret_cast<UltimateEstimator*>(buffer)), /*, model(0.1),*/ estimator_scores() {
 		for (int i = 0; i < n_estimators; i++) {
 			new(&estimators[i]) UltimateEstimator(parameters[i][0], parameters[i][1], parameters[i][2]);
 		}
 	}
 
 	inline void Step() {
+		// 最後のターンのパスについて、各 estimator の予測値を出して、目的変数とどれくらい近いか測る
+		const auto& observed_distance = Info::results[Info::turn - 1];
+		for (int i = 0; i < n_estimators; i++) {
+			const auto& estimator = estimators[i];
+			auto estimated_distance = 0.0;
+			auto p = input.S[Info::turn - 1];
+			for (const auto& d : Info::paths[Info::turn - 1]) {
+				switch (d) {
+				case Direction::D:
+					estimated_distance += estimator.GetCost(false, p);
+					p.y++;
+					break;
+				case Direction::R:
+					estimated_distance += estimator.GetCost(true, p);
+					p.x++;
+					break;
+				case Direction::U:
+					p.y--;
+					estimated_distance += estimator.GetCost(false, p);
+					break;
+				case Direction::L:
+					p.x--;
+					estimated_distance += estimator.GetCost(true, p);
+					break;
+				}
+			}
+			estimator_scores[i] *= 0.998;
+			const auto normalized_diff = estimated_distance / observed_distance - 1.0;
+			estimator_scores[i] += normalized_diff * normalized_diff;
+#ifndef ONLINE_JUDGE
+			//cerr << estimator_scores[i] << " ";
+#endif
+		}
+#ifndef ONLINE_JUDGE
+		//cerr << endl;
+#endif
 		for (int i = 0; i < n_estimators; i++) {
 			estimators[i].Step();
 		}
 	}
 
 	inline double GetCost(const bool& horizonatal_edge, const Vec2<int>& p) {
-		auto res = 0.0;
-		for (int i = 0; i < n_estimators; i++) {
-			res += estimators[i].GetCost(horizonatal_edge, p);
+		// 毎回ループ回るのはちょっと微妙だが…
+		if (Info::turn < 100) {
+			auto res = 0.0;
+			for (int i = 0; i < n_estimators; i++) {
+				res += estimators[i].GetCost(horizonatal_edge, p);
+			}
+			res /= (double)n_estimators;
+			return res;
 		}
-		res /= (double)n_estimators;
-		return res;
+		else {
+			auto res = 5000.0;
+			auto mi = numeric_limits<double>::max();
+			for (int i = 0; i < n_estimators; i++) {
+				if (chmin(mi, estimator_scores[i])) {
+					res = estimators[i].GetCost(horizonatal_edge, p);
+				}
+			}
+			return res;
+		}
 	}
 
 	inline void Print() {
