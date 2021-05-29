@@ -35,8 +35,11 @@
 #pragma GCC optimize("unroll-loops")
 #endif
 
+using namespace std;
 
 // ========================== parameters ==========================
+
+constexpr int n_ensemble = 1;  // 別のところも変える必要がある
 
 // ridge regression
 constexpr double LAMBDA = 164.79815141370864;           // OPTIMIZE [2.0, 1e3] LOG
@@ -51,18 +54,16 @@ constexpr double RIDGE2_LAMBDA = 1000.0;                // OPTIMIZE [1e0, 1e5] L
 constexpr double UCB1_COEF = 502.42358003127214;       // OPTIMIZE [1e0, 1e4] LOG
 constexpr double UCB1_EPS = 0.6984158334936159;          // OPTIMIZE [1e-3, 1e1] LOG
 
-/*
-constexpr double TURNING_COST_50 = 3616849.841967807;   // OPTIMIZEd [1e0, 1e7] LOG
-constexpr double TURNING_COST_100 = 20079.005861955284;  // OPTIMIZEd [1e0, 1e5] LOG
-constexpr double TURNING_COST_150 = 1984.8049244192123;  // OPTIMIZEd [1e0, 1e5] LOG
-constexpr double TURNING_COST_200 = 7837.489734778632;  // OPTIMIZEd [1e0, 1e5] LOG
-*/
-
-constexpr double TURNING_COST_AT_100 = 5000.0;           // OPTIMIZE [100.0, 1e5]
-constexpr double TURNING_COST_COEF_TMP = 0.02;           // OPTIMIZE [0.001, 0.1] LOG
+//constexpr double TURNING_COST_AT_100 = 5000.0;           // 
+///constexpr double TURNING_COST_COEF_TMP = 0.02;           // 
+constexpr double TURNING_COST_AT_100 = 2450.021853033184;           // OPTIMIZE [100.0, 1e5]
+constexpr double TURNING_COST_COEF_TMP = 0.007528972805469051;           // OPTIMIZE [0.001, 0.1] LOG
 constexpr double TURNING_COST_COEF = 1.0 - TURNING_COST_COEF_TMP;
 
-
+const auto ESTIMATOR_PARAMS = array<array<double, 3>, n_ensemble>{
+	array<double, 3>{ LAMBDA, LASSO_LAMBDA, RIDGE2_LAMBDA }
+	//, array<double, 3>{ 65.29644842443841, 19073.15112614794, 65887.21036463806 }
+};
 
 // ========================== macroes ==========================
 
@@ -93,7 +94,7 @@ constexpr double TURNING_COST_COEF = 1.0 - TURNING_COST_COEF_TMP;
 
 // ========================== utils ==========================
 
-using namespace std;
+
 using ll = long long;
 constexpr double PI = 3.1415926535897932;
 
@@ -1420,10 +1421,10 @@ struct Explorer {
 		signed char y, x;
 		bool h;
 	};
-	Ensemble<2>* state;
+	Ensemble<n_ensemble>* state;
 	array<array<array<double, 2>, 30>, 30> distances;
 	array<array<array<Node, 2>, 30>, 30> from;
-	Explorer(Ensemble<2>& arg_state) : state(&arg_state), distances(), from() {}
+	Explorer(Ensemble<n_ensemble>& arg_state) : state(&arg_state), distances(), from() {}
 
 	// 
 	void Step() {
@@ -1541,13 +1542,10 @@ struct Explorer {
 struct Solver {
 	//State state;
 	//Estimator estimator;
-	Ensemble<2> estimator;
+	Ensemble<n_ensemble> estimator;
 	Explorer explorer;
 
-	Solver() : estimator({
-			array<double, 3>{ LAMBDA, LASSO_LAMBDA, RIDGE2_LAMBDA },
-			array<double, 3>{ 65.29644842443841, 19073.15112614794, 65887.21036463806 }
-		}), explorer(estimator) {}
+	Solver() : estimator(ESTIMATOR_PARAMS), explorer(estimator) {}
 
 	inline string Solve() {
 		// 結果は Info::paths に格納され、文字列化したものを返す
@@ -1914,11 +1912,11 @@ namespace Test {
 }
 
 int main(int argc, char* argv[]) {
-	//Solve();
+	Solve();
 	//Experiment::Experiment();
 	//Test::lasso_test();
 
-
+	/*
 	if (argc >= 4) {
 		const auto seed = atoi(argv[1]);
 		rng.seed = seed + 12345;
@@ -1928,7 +1926,7 @@ int main(int argc, char* argv[]) {
 		const auto M = atoi(argv[3]);
 		Experiment::PrintNewData(D, M);
 	}
-
+	*/
 
 #ifdef _MSC_VER
 	int a;
