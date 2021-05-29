@@ -1145,11 +1145,13 @@ struct UltimateEstimator {
 #ifdef PRINT_STATS
 		stats.Print(cerr);
 #endif
+		/*
 		// 道内の辺の平均
 		fill(road_costs.begin(), road_costs.end(), 0.0);
 		for (auto y = 0; y < 30; y++) for (auto x = 0; x < 29; x++) road_costs[30 + y] += GetLassoCost(true, { y, x });
 		for (auto x = 0; x < 30; x++) for (auto y = 0; y < 29; y++) road_costs[x] += GetLassoCost(false, { y, x });
 		for (auto&& road_cost : road_costs) road_cost /= 29.0;
+		*/
 	}
 
 	inline double GetLassoCost(const bool& horizonatal_edge, const Vec2<int>& p) {
@@ -1160,7 +1162,10 @@ struct UltimateEstimator {
 			return edge_costs.vertical_edges[p.y][p.x];
 		}
 	}
-
+	inline double GetCost(const bool& horizonatal_edge, const Vec2<int>& p) {
+		return GetLassoCost(horizonatal_edge, p);
+	}
+	/*
 	// lasso の寄与が小さい時、平滑化
 	inline double GetCost(const bool& horizonatal_edge, const Vec2<int>& p) {
 		if (log((double)(Info::turn + 1) / FLATTEN_THRESHOLD_TURN) * FLATTEN_THRESHOLD_B > stats.mean_abs_lasso_weight) {
@@ -1171,7 +1176,7 @@ struct UltimateEstimator {
 			return GetLassoCost(horizonatal_edge, p);
 		}
 	}
-
+	*/
 	inline Stats GetStats() {
 
 		// ridge の予測値
