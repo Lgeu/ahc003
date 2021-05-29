@@ -39,30 +39,29 @@
 // ========================== parameters ==========================
 
 // ridge regression
-constexpr double LAMBDA = 164.79815141370864;           // OPTIMIZE [1e-2, 1e4] LOG
+constexpr double LAMBDA = 164.79815141370864;           // OPTIMIZE [2.0, 1e3] LOG
 
 // lasso regression
 constexpr double LASSO_LAMBDA = 17216.974925842333;      // OPTIMIZE [1e3, 1e6] LOG
 
 // ridge regression for delta
-constexpr double RIDGE2_LAMBDA = 1000.0;
+constexpr double RIDGE2_LAMBDA = 1000.0;                // OPTIMIZE [1e0, 1e5] LOG
 
 // explorer
 constexpr double UCB1_COEF = 502.42358003127214;       // OPTIMIZE [1e0, 1e4] LOG
 constexpr double UCB1_EPS = 0.6984158334936159;          // OPTIMIZE [1e-3, 1e1] LOG
-constexpr double TURNING_COST_50 = 3616849.841967807;   // OPTIMIZE [1e0, 1e7] LOG
-constexpr double TURNING_COST_100 = 20079.005861955284;  // OPTIMIZE [1e0, 1e5] LOG
-constexpr double TURNING_COST_150 = 1984.8049244192123;  // OPTIMIZE [1e0, 1e5] LOG
-constexpr double TURNING_COST_200 = 7837.489734778632;  // OPTIMIZE [1e0, 1e5] LOG
 
-// 平滑化の基準
-constexpr double FLATTEN_THRESHOLD_TURN = 50.0;
-constexpr double FLATTEN_THRESHOLD_B = 5000.0;
+/*
+constexpr double TURNING_COST_50 = 3616849.841967807;   // OPTIMIZEd [1e0, 1e7] LOG
+constexpr double TURNING_COST_100 = 20079.005861955284;  // OPTIMIZEd [1e0, 1e5] LOG
+constexpr double TURNING_COST_150 = 1984.8049244192123;  // OPTIMIZEd [1e0, 1e5] LOG
+constexpr double TURNING_COST_200 = 7837.489734778632;  // OPTIMIZEd [1e0, 1e5] LOG
+*/
 
-// 未使用
-constexpr double TURNING_COST_START = 200.0;
-constexpr double TURNING_COST_A = -40.0;
-constexpr double TURNING_COST_B = 1.0;
+constexpr double TURNING_COST_AT_100 = 5000.0;           // OPTIMIZE [100.0, 1e5]
+constexpr double TURNING_COST_COEF_TMP = 0.02;           // OPTIMIZE [0.001, 0.1] LOG
+constexpr double TURNING_COST_COEF = 1.0 - TURNING_COST_COEF_TMP;
+
 
 
 // ========================== macroes ==========================
@@ -1342,11 +1341,13 @@ struct Explorer {
 		// ダイクストラで最短路を見つける
 		//const auto turning_cost = monotonic_function(TURNING_COST_START, 0.0, TURNING_COST_A, TURNING_COST_B, (double)Info::turn / 999.0);  //
 		const auto turning_cost
-			= Info::turn < 50 ? TURNING_COST_50
+			= Info::turn < 30 ? 1e7 :TURNING_COST_AT_100 * pow(TURNING_COST_COEF, Info::turn - 100.0);
+			/*= Info::turn < 50 ? TURNING_COST_50
 			: Info::turn < 100 ? TURNING_COST_100
 			: Info::turn < 150 ? TURNING_COST_150
 			: Info::turn < 200 ? TURNING_COST_200
 			: 0.0;
+			*/
 		constexpr auto inf = numeric_limits<double>::max();
 		fill(&distances[0][0][0], &distances[0][0][0] + sizeof(distances) / sizeof(decltype(inf)), inf);
 
