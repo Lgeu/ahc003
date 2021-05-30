@@ -78,7 +78,7 @@ const auto ESTIMATOR_PARAMS = array<array<double, 3>, n_ensemble>{
 #define rep1(i,n) for(ll (i)=1; (i)<=(n); (i)++)
 #define rep3(i,s,n) for(ll (i)=(s); (i)<(n); (i)++)
 
-//#define NDEBUG
+#define NDEBUG
 
 #ifndef NDEBUG
 #define ASSERT(expr, ...) \
