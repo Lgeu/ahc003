@@ -51,14 +51,14 @@ constexpr double LASSO_LAMBDA = 17216.974925842333;      //  [1e3, 1e6] LOG
 constexpr double RIDGE2_LAMBDA = 1000.0;                //  [1e0, 1e5] LOG
 
 // explorer
-constexpr double UCB1_COEF_AT_100 = 502.42358003127214;   // OPTIMIZE [1e0, 1e4] LOG
-constexpr double UCB1_EPS = 0.6984158334936159;          // OPTIMIZE [1e-3, 1e1] LOG
-constexpr double UCB1_DECAY_RATE_TMP = 0.01;           // OPTIMIZE [1e-5, 0.1]
+constexpr double UCB1_COEF_AT_100 = 80.12123441020519;   // OPTIMIZE [1e0, 1e4] LOG
+constexpr double UCB1_EPS = 0.002939902295844433;          // OPTIMIZE [1e-3, 1e1] LOG
+constexpr double UCB1_DECAY_RATE_TMP = 0.001339360135628766;           // OPTIMIZE [1e-5, 0.1] LOG
 constexpr double UCB1_DECAY_RATE = 1.0 - UCB1_DECAY_RATE_TMP;
 //constexpr double TURNING_COST_AT_100 = 5000.0;           // 
 //constexpr double TURNING_COST_COEF_TMP = 0.02;           // 
-constexpr double TURNING_COST_AT_100 = 2450.021853033184;           // OPTIMIZE [1000.0, 1e5]
-constexpr double TURNING_COST_COEF_TMP = 0.007528972805469051;           // OPTIMIZE [0.001, 0.1] LOG
+constexpr double TURNING_COST_AT_100 = 1587.5270160882505;           // OPTIMIZE [1000.0, 1e5]
+constexpr double TURNING_COST_COEF_TMP = 0.009911719985799641;           // OPTIMIZE [0.001, 0.1] LOG
 constexpr double TURNING_COST_COEF = 1.0 - TURNING_COST_COEF_TMP;
 
 
@@ -66,10 +66,10 @@ const auto ESTIMATOR_PARAMS = array<array<double, 3>, n_ensemble>{
 	array<double, 3>{ LAMBDA, LASSO_LAMBDA, RIDGE2_LAMBDA }
 	, { 65.29644842443841, 19073.15112614794, 65887.21036463806 }
 
-	, { 97.63389560380523, 14987.621063114975, 653942.60884654 }
-	, { 42.99157066434686, 16887.647897090108, 993.1341703870245 }
-	, { 7.952763824079724, 241543.08158998602, 92.5883795442626 }
-	, { 12.836089371791292, 588143.963459071, 20.413196164504438 }
+		, { 97.63389560380523, 14987.621063114975, 653942.60884654 }
+		, { 42.99157066434686, 16887.647897090108, 993.1341703870245 }
+		, { 7.952763824079724, 241543.08158998602, 92.5883795442626 }
+		, { 12.836089371791292, 588143.963459071, 20.413196164504438 }
 };
 
 // ========================== macroes ==========================
@@ -1344,11 +1344,11 @@ struct Ensemble {
 	char buffer[sizeof(UltimateEstimator) * n_estimators];
 	//array<UltimateEstimator, n_estimators> estimators;
 	UltimateEstimator* estimators;
-	
+
 	//FastRidgeRegression<n_estimators, 999> model;
 	array<double, n_estimators> estimator_scores;  // 各 estimator の予測誤差の指数平滑移動平均
 	array<bool, n_estimators> enabled;
-	
+
 
 	Ensemble(const array<array<double, 3>, n_estimators>& parameters) :
 		buffer(), estimators(reinterpret_cast<UltimateEstimator*>(buffer)), /*, model(0.1),*/ estimator_scores(), enabled() {
@@ -1461,7 +1461,7 @@ struct Explorer {
 	array<array<array<double, 2>, 30>, 30> distances;
 	array<array<array<Node, 2>, 30>, 30> from;
 	double current_ucb1_coef;
-	Explorer(Ensemble<n_ensemble>& arg_state) : state(&arg_state), distances(), from(), current_ucb1_coef(UCB1_COEF_AT_100 * pow(UCB1_DECAY_RATE, -100)) {}
+	Explorer(Ensemble<n_ensemble>& arg_state) : state(&arg_state), distances(), from(), current_ucb1_coef(UCB1_COEF_AT_100* pow(UCB1_DECAY_RATE, -100)) {}
 
 	// 
 	void Step() {
