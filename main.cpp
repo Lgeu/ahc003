@@ -39,7 +39,7 @@ using namespace std;
 
 // ========================== parameters ==========================
 
-constexpr int n_ensemble = 4;  // 別のところも変える必要がある
+constexpr int n_ensemble = 6;  // 別のところも変える必要がある
 
 // ridge regression
 constexpr double LAMBDA = 164.79815141370864;           //  [2.0, 1e3] LOG
@@ -65,8 +65,11 @@ constexpr double TURNING_COST_COEF = 1.0 - TURNING_COST_COEF_TMP;
 const auto ESTIMATOR_PARAMS = array<array<double, 3>, n_ensemble>{
 	array<double, 3>{ LAMBDA, LASSO_LAMBDA, RIDGE2_LAMBDA }
 	, { 65.29644842443841, 19073.15112614794, 65887.21036463806 }
-	, { 9.130916537716853, 89531.58475209305, 38591.23057996573 }
-	, { 9.450704566517837, 44367.183631064865, 14.707138571605743 }
+
+	, { 97.63389560380523, 14987.621063114975, 653942.60884654 }
+	, { 42.99157066434686, 16887.647897090108, 993.1341703870245 }
+	, { 7.952763824079724, 241543.08158998602, 92.5883795442626 }
+	, { 12.836089371791292, 588143.963459071, 20.413196164504438 }
 };
 
 // ========================== macroes ==========================
@@ -1397,7 +1400,7 @@ struct Ensemble {
 		for (int i = 0; i < n_estimators; i++) {
 			if (enabled[i]) n_enabled++;
 		}
-		while (Info::turn >= 500 && n_enabled > 2) {
+		if (Info::turn >= 200 && Info::turn % 100 == 0 && n_enabled > 2) {
 			auto ma = numeric_limits<double>::min();
 			auto ama = -100;
 			for (int i = 0; i < n_estimators; i++) {
