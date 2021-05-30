@@ -42,23 +42,25 @@ using namespace std;
 constexpr int n_ensemble = 4;  // 別のところも変える必要がある
 
 // ridge regression
-constexpr double LAMBDA = 164.79815141370864;           // OPTIMIZE [2.0, 1e3] LOG
+constexpr double LAMBDA = 164.79815141370864;           //  [2.0, 1e3] LOG
 
 // lasso regression
-constexpr double LASSO_LAMBDA = 17216.974925842333;      // OPTIMIZE [1e3, 1e6] LOG
+constexpr double LASSO_LAMBDA = 17216.974925842333;      //  [1e3, 1e6] LOG
 
 // ridge regression for delta
-constexpr double RIDGE2_LAMBDA = 1000.0;                // OPTIMIZE [1e0, 1e5] LOG
+constexpr double RIDGE2_LAMBDA = 1000.0;                //  [1e0, 1e5] LOG
 
 // explorer
-constexpr double UCB1_COEF = 502.42358003127214;       // OPTIMIZE [1e0, 1e4] LOG
+constexpr double UCB1_COEF_AT_100 = 502.42358003127214;   // OPTIMIZE [1e0, 1e4] LOG
 constexpr double UCB1_EPS = 0.6984158334936159;          // OPTIMIZE [1e-3, 1e1] LOG
-
-constexpr double TURNING_COST_AT_100 = 5000.0;           // 
-constexpr double TURNING_COST_COEF_TMP = 0.02;           // 
-//constexpr double TURNING_COST_AT_100 = 2450.021853033184;           // OPTIMIZE [100.0, 1e5]
-//constexpr double TURNING_COST_COEF_TMP = 0.007528972805469051;           // OPTIMIZE [0.001, 0.1] LOG
+constexpr double UCB1_DECAY_RATE_TMP = 0.01;           // OPTIMIZE [1e-5, 0.1]
+constexpr double UCB1_DECAY_RATE = 1.0 - UCB1_DECAY_RATE_TMP;
+//constexpr double TURNING_COST_AT_100 = 5000.0;           // 
+//constexpr double TURNING_COST_COEF_TMP = 0.02;           // 
+constexpr double TURNING_COST_AT_100 = 2450.021853033184;           // OPTIMIZE [1000.0, 1e5]
+constexpr double TURNING_COST_COEF_TMP = 0.007528972805469051;           // OPTIMIZE [0.001, 0.1] LOG
 constexpr double TURNING_COST_COEF = 1.0 - TURNING_COST_COEF_TMP;
+
 
 const auto ESTIMATOR_PARAMS = array<array<double, 3>, n_ensemble>{
 	array<double, 3>{ LAMBDA, LASSO_LAMBDA, RIDGE2_LAMBDA }
@@ -1455,7 +1457,8 @@ struct Explorer {
 	Ensemble<n_ensemble>* state;
 	array<array<array<double, 2>, 30>, 30> distances;
 	array<array<array<Node, 2>, 30>, 30> from;
-	Explorer(Ensemble<n_ensemble>& arg_state) : state(&arg_state), distances(), from() {}
+	double current_ucb1_coef;
+	Explorer(Ensemble<n_ensemble>& arg_state) : state(&arg_state), distances(), from(), current_ucb1_coef(UCB1_COEF_AT_100 * pow(UCB1_DECAY_RATE, -100)) {}
 
 	// 
 	void Step() {
@@ -1561,11 +1564,12 @@ struct Explorer {
 			p = frm;
 		}
 		reverse(path.begin(), path.end());
+		current_ucb1_coef *= UCB1_DECAY_RATE;
 	}
 
 	inline double UCB1(const int& n) {
 		// log は無視
-		return UCB1_COEF / sqrt((double)n + UCB1_EPS) * (1.0 - Info::next_score_coef);
+		return current_ucb1_coef / sqrt((double)n + UCB1_EPS);
 	}
 };
 
@@ -1739,7 +1743,7 @@ namespace Experiment {
 		distances[start.y][start.x] = 0.0;
 
 		auto q = radix_heap::pair_radix_heap<int, Vec2<int>>();
-		q.push(0.0, start);
+		q.push(0, start);
 
 		while (true) {
 			auto dist_v = q.top_key();
