@@ -916,30 +916,35 @@ struct RidgeRegression {
 // sklearn と比べると、 lambda = データ数 * alpha にして、 fit_intercept=False にすると結果が一致する
 template<int dimension, int max_n_data>
 struct LassoRegression {
+	// データ
 	Stack<array<double, dimension>, max_n_data> X;             // 説明変数  // 0 要素を直接持つのは無駄だけどまあ
 	//Stack<double, max_n_data> y;                               // 目的変数  // これ別に保持しておく必要ない
 	array<Stack<int, max_n_data>, dimension> nonzero_indexes;  // 各説明変数に対し、それが影響するすべてのデータのインデックスを持つ
 	array<double, dimension> squared_norm;                     // 各説明変数の l2 ノルムの 2 乗
 
+	// パラメータ
 	double lambda;
 
+	// 内部情報
 	array<double, dimension> weights;
 	//Stack<double, max_n_data> y_pred;
 	Stack<double, max_n_data> residuals;  // 目的変数から予測値を引いた値
+	array<int, dimension> skip_turns;     // iterate での更新を飛ばすターン数
 
-	LassoRegression(const double& arg_lambda) : X(), /*y(),*/ nonzero_indexes(), squared_norm(), lambda(arg_lambda), weights(), residuals() {}
+	LassoRegression(const double& arg_lambda) : X(), /*y(),*/ nonzero_indexes(), squared_norm(), lambda(arg_lambda), weights(), residuals(), skip_turns() {}
 
 	// O(X の非 0 要素数)
 	inline void Iterate() {  // TODO : 枝刈り
 		for (auto j = 0; j < dimension; j++) {  // 各座標方向に対して最適化
 			if (squared_norm[j] == 0.0) continue;
+			if (skip_turns[j]) { skip_turns[j]--; continue; }
 			auto rho = 0.0;  // 最小二乗解
 			const auto& old_weight = weights[j];
 			for (const auto& i : nonzero_indexes[j]) {
 				rho += X[i][j] * (residuals[i] + old_weight * X[i][j]);  // x_j^T r  // old_weight * X[i][j] の項は前計算で省けるけどまあ
 			}  // これ 1/N しないと合計二乗誤差、1/N すると平均二乗誤差か？？？
 			const auto& new_weight = SoftThreshold(rho) / (squared_norm[j]);
-			if (new_weight == old_weight) continue;
+			if (new_weight == old_weight) { skip_turns[j] = X.size() / 100; continue; }
 			for (const auto& i : nonzero_indexes[j]) {
 				residuals[i] -= (new_weight - weights[j]) * X[i][j];
 			}
@@ -1956,6 +1961,6 @@ int main(int argc, char* argv[]) {
 
 #ifdef _MSC_VER
 	int a;
-	//while (1) cin >> a;
+	while (1) cin >> a;
 #endif
 }
