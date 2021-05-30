@@ -29,7 +29,7 @@
 #ifdef __GNUC__
 #pragma GCC target("avx2")
 #pragma GCC target("sse4")
-//#pragma GCC target("sse,sse2,sse3,ssse3,sse4,popcnt,abm,mmx,avx,tune=native")
+#pragma GCC target("sse,sse2,sse3,ssse3,sse4,popcnt,abm,mmx,avx,tune=native")
 #pragma GCC optimize("O3")
 //#pragma GCC optimize("Ofast")
 #pragma GCC optimize("unroll-loops")
@@ -39,7 +39,7 @@ using namespace std;
 
 // ========================== parameters ==========================
 
-constexpr int n_ensemble = 1;  // 別のところも変える必要がある
+constexpr int n_ensemble = 4;  // 別のところも変える必要がある
 
 // ridge regression
 constexpr double LAMBDA = 164.79815141370864;           // OPTIMIZE [2.0, 1e3] LOG
@@ -54,15 +54,17 @@ constexpr double RIDGE2_LAMBDA = 1000.0;                // OPTIMIZE [1e0, 1e5] L
 constexpr double UCB1_COEF = 502.42358003127214;       // OPTIMIZE [1e0, 1e4] LOG
 constexpr double UCB1_EPS = 0.6984158334936159;          // OPTIMIZE [1e-3, 1e1] LOG
 
-//constexpr double TURNING_COST_AT_100 = 5000.0;           // 
-///constexpr double TURNING_COST_COEF_TMP = 0.02;           // 
-constexpr double TURNING_COST_AT_100 = 2450.021853033184;           // OPTIMIZE [100.0, 1e5]
-constexpr double TURNING_COST_COEF_TMP = 0.007528972805469051;           // OPTIMIZE [0.001, 0.1] LOG
+constexpr double TURNING_COST_AT_100 = 5000.0;           // 
+constexpr double TURNING_COST_COEF_TMP = 0.02;           // 
+//constexpr double TURNING_COST_AT_100 = 2450.021853033184;           // OPTIMIZE [100.0, 1e5]
+//constexpr double TURNING_COST_COEF_TMP = 0.007528972805469051;           // OPTIMIZE [0.001, 0.1] LOG
 constexpr double TURNING_COST_COEF = 1.0 - TURNING_COST_COEF_TMP;
 
 const auto ESTIMATOR_PARAMS = array<array<double, 3>, n_ensemble>{
 	array<double, 3>{ LAMBDA, LASSO_LAMBDA, RIDGE2_LAMBDA }
-	//, array<double, 3>{ 65.29644842443841, 19073.15112614794, 65887.21036463806 }
+	, { 65.29644842443841, 19073.15112614794, 65887.21036463806 }
+	, { 9.130916537716853, 89531.58475209305, 38591.23057996573 }
+	, { 9.450704566517837, 44367.183631064865, 14.707138571605743 }
 };
 
 // ========================== macroes ==========================
@@ -1335,12 +1337,14 @@ struct Ensemble {
 	
 	//FastRidgeRegression<n_estimators, 999> model;
 	array<double, n_estimators> estimator_scores;  // 各 estimator の予測誤差の指数平滑移動平均
+	array<bool, n_estimators> enabled;
 	
 
 	Ensemble(const array<array<double, 3>, n_estimators>& parameters) :
-		buffer(), estimators(reinterpret_cast<UltimateEstimator*>(buffer)), /*, model(0.1),*/ estimator_scores() {
+		buffer(), estimators(reinterpret_cast<UltimateEstimator*>(buffer)), /*, model(0.1),*/ estimator_scores(), enabled() {
 		for (int i = 0; i < n_estimators; i++) {
 			new(&estimators[i]) UltimateEstimator(parameters[i][0], parameters[i][1], parameters[i][2]);
+			enabled[i] = true;
 		}
 	}
 
@@ -1348,6 +1352,7 @@ struct Ensemble {
 		// 最後のターンのパスについて、各 estimator の予測値を出して、目的変数とどれくらい近いか測る
 		const auto& observed_distance = Info::results[Info::turn - 1];
 		for (int i = 0; i < n_estimators; i++) {
+			if (!enabled[i]) continue;
 			const auto& estimator = estimators[i];
 			auto estimated_distance = 0.0;
 			auto p = input.S[Info::turn - 1];
@@ -1381,7 +1386,25 @@ struct Ensemble {
 #ifndef ONLINE_JUDGE
 		//cerr << endl;
 #endif
+		int n_enabled = 0;
 		for (int i = 0; i < n_estimators; i++) {
+			if (enabled[i]) n_enabled++;
+		}
+		while (Info::turn >= 500 && n_enabled > 2) {
+			auto ma = numeric_limits<double>::min();
+			auto ama = -100;
+			for (int i = 0; i < n_estimators; i++) {
+				if (!enabled[i]) continue;
+				if (chmax(ma, estimator_scores[i])) {
+					ama = i;
+				}
+			}
+			enabled[ama] = false;
+			n_enabled--;
+		}
+
+		for (int i = 0; i < n_estimators; i++) {
+			if (!enabled[i]) continue;
 			estimators[i].Step();
 		}
 	}
@@ -1389,12 +1412,15 @@ struct Ensemble {
 	inline double GetCost(const bool& horizonatal_edge, const Vec2<int>& p) {
 		// 毎回ループ回るのはちょっと微妙だが…
 		if (Info::turn < 100) {
+			return estimators[0].GetCost(horizonatal_edge, p);
+			/*
 			auto res = 0.0;
 			for (int i = 0; i < n_estimators; i++) {
 				res += estimators[i].GetCost(horizonatal_edge, p);
 			}
 			res /= (double)n_estimators;
 			return res;
+			*/
 		}
 		else {
 			auto res = 5000.0;
@@ -1930,6 +1956,6 @@ int main(int argc, char* argv[]) {
 
 #ifdef _MSC_VER
 	int a;
-	while (1) cin >> a;
+	//while (1) cin >> a;
 #endif
 }
